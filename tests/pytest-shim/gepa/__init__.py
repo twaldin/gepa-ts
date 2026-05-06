@@ -9,8 +9,14 @@ from gepa.optimize_anything import (
     TrackingConfig,
     MergeConfig,
     RefinerConfig,
-    optimize_anything,
+    OptimizationState,
+    EvaluatorWrapper,
+    LogContext,
+    log,
+    get_log_context,
+    set_log_context,
 )
+from gepa.api import optimize
 
 __all__ = [
     'GEPAConfig',
@@ -19,5 +25,11 @@ __all__ = [
     'TrackingConfig',
     'MergeConfig',
     'RefinerConfig',
-    'optimize_anything',
+    'OptimizationState',
+    'EvaluatorWrapper',
+    'LogContext',
+    'log',
+    'get_log_context',
+    'set_log_context',
+    'optimize',
 ]

@@ -1,9 +1,9 @@
-import { type Candidate, type EvaluationBatch, type SideInfo } from "./types";
+import { type Candidate, type EvaluationBatch, type EvaluatorOptState, type SideInfo } from "./types";
 
 type ObjectiveScores = Record<string, number>;
 
 type WrappedEvaluator = {
-  call(candidate: Candidate, example?: unknown): Promise<[number, unknown, SideInfo]>;
+  call(candidate: Candidate, example?: unknown, opt_state?: EvaluatorOptState): Promise<[number, unknown, SideInfo]>;
 };
 
 function is_record(value: unknown): value is Record<string, unknown> {
@@ -53,17 +53,24 @@ export class OptimizeAnythingAdapter {
     this.evaluator = params.evaluator;
   }
 
-  async evaluate(batch: unknown[], candidate: Candidate, _capture_traces: boolean = false): Promise<EvaluationBatch> {
+  async evaluate(
+    batch: unknown[],
+    candidate: Candidate,
+    _capture_traces: boolean = false,
+    opt_states?: Array<EvaluatorOptState | undefined>,
+  ): Promise<EvaluationBatch> {
     const outputs: Array<[number, Candidate, SideInfo]> = [];
     const scores: number[] = [];
     const trajectories: SideInfo[] = [];
+    const side_infos: SideInfo[] = [];
     const objective_scores: ObjectiveScores[] = [];
 
-    for (const example of batch) {
-      const [score, _output, side_info] = await this.evaluator.call(candidate, example);
+    for (const [idx, example] of batch.entries()) {
+      const [score, _output, side_info] = await this.evaluator.call(candidate, example, opt_states?.[idx]);
       outputs.push([score, candidate, side_info]);
       scores.push(score);
       trajectories.push(side_info);
+      side_infos.push(side_info);
       objective_scores.push(extract_objective_scores(side_info, candidate));
     }
 
@@ -71,6 +78,7 @@ export class OptimizeAnythingAdapter {
       outputs,
       scores,
       trajectories,
+      side_infos,
       objective_scores,
       num_metric_calls: batch.length,
     };

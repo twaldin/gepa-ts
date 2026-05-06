@@ -1,4 +1,10 @@
-import { STR_CANDIDATE_KEY, type Candidate, type Evaluator, type SideInfo } from "./types";
+import {
+  STR_CANDIDATE_KEY,
+  type Candidate,
+  type Evaluator,
+  type EvaluatorOptState,
+  type SideInfo,
+} from "./types";
 
 export class EvaluatorWrapper {
   private readonly evaluator: Evaluator;
@@ -18,13 +24,17 @@ export class EvaluatorWrapper {
     this.raise_on_exception = raise_on_exception;
   }
 
-  async call(candidate: Candidate, example?: unknown): Promise<[number, unknown, SideInfo]> {
+  async call(
+    candidate: Candidate,
+    example?: unknown,
+    opt_state: EvaluatorOptState = { best_example_evals: [] },
+  ): Promise<[number, unknown, SideInfo]> {
     const eval_candidate: string | Candidate = this.str_candidate_mode ? (candidate[STR_CANDIDATE_KEY] ?? "") : candidate;
 
     try {
       const result = this.single_instance_mode
-        ? await Promise.resolve(this.evaluator(eval_candidate))
-        : await Promise.resolve(this.evaluator(eval_candidate, { example }));
+        ? await Promise.resolve(this.evaluator(eval_candidate, { opt_state }))
+        : await Promise.resolve(this.evaluator(eval_candidate, { example, opt_state }));
 
       if (typeof result === "number") {
         return [result, undefined, {}];
