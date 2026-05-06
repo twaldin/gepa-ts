@@ -1,17 +1,26 @@
 import type { BatchSampler, DataLoader, DataId, GEPAStateLike } from "./types";
 import { SeededRandom } from "./utils";
 
-type BatchSamplerStateLike = GEPAStateLike & {
-  i: number;
-};
-
 function get_least_frequent_id<TDataId extends DataId>(counts: Map<TDataId, number>): TDataId {
-  const sorted = [...counts.entries()].sort((a, b) => a[1] - b[1]);
-  const least_frequent_id = sorted[0]?.[0];
+  let least_frequent_id: TDataId | undefined;
+  let least_freq = Infinity;
+  for (const [id, freq] of counts) {
+    if (freq <= least_freq) {
+      least_frequent_id = id;
+      least_freq = freq;
+    }
+  }
   if (least_frequent_id === undefined) {
     throw new Error("Cannot pad shuffled ids without available ids.");
   }
   return least_frequent_id;
+}
+
+function state_i(state: GEPAStateLike): number {
+  if (!("i" in state) || typeof state.i !== "number") {
+    throw new Error("Batch sampler state must include numeric i.");
+  }
+  return state.i;
 }
 
 export class EpochShuffledBatchSampler<TDataId extends DataId = DataId, TDataInst = unknown>
@@ -55,7 +64,6 @@ export class EpochShuffledBatchSampler<TDataId extends DataId = DataId, TDataIns
     const mod = trainset_size % this.minibatch_size;
     const num_to_pad = mod !== 0 ? this.minibatch_size - mod : 0;
     for (let i = 0; i < num_to_pad; i += 1) {
-      // Python parity for batch_sampler.py line with Counter.most_common()[::-1][0]: this picks least frequent id.
       const selected_id = get_least_frequent_id(this.id_freqs);
       this.shuffled_ids.push(selected_id);
       this.id_freqs.set(selected_id, (this.id_freqs.get(selected_id) ?? 0) + 1);
@@ -68,8 +76,7 @@ export class EpochShuffledBatchSampler<TDataId extends DataId = DataId, TDataIns
       throw new Error("Cannot sample a minibatch from an empty loader.");
     }
 
-    const typed_state = state as BatchSamplerStateLike;
-    const base_idx = typed_state.i * this.minibatch_size;
+    const base_idx = state_i(state) * this.minibatch_size;
     const curr_epoch = this.epoch === -1 ? 0 : Math.floor(base_idx / Math.max(this.shuffled_ids.length, 1));
     const needs_refresh =
       this.shuffled_ids.length === 0 || trainset_size !== this.last_trainset_size || curr_epoch > this.epoch;
@@ -79,8 +86,18 @@ export class EpochShuffledBatchSampler<TDataId extends DataId = DataId, TDataIns
       this.update_shuffled(loader);
     }
 
+    if (this.shuffled_ids.length < this.minibatch_size) {
+      throw new Error("Invariant failed: shuffled_ids length must be at least minibatch_size.");
+    }
+    if (this.shuffled_ids.length % this.minibatch_size !== 0) {
+      throw new Error("Invariant failed: shuffled_ids length must be divisible by minibatch_size.");
+    }
+
     const start = base_idx % this.shuffled_ids.length;
     const end = start + this.minibatch_size;
+    if (end > this.shuffled_ids.length) {
+      throw new Error("Invariant failed: minibatch slice must not wrap across shuffled_ids.");
+    }
     return this.shuffled_ids.slice(start, end);
   }
 }
