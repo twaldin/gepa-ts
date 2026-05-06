@@ -35,7 +35,11 @@ export type ProposalFn = (
 ) => Candidate;
 
 export interface GEPAAdapter<TDataInst = DataInst, TTrajectory = Trajectory, TRolloutOutput = RolloutOutput> {
-  evaluate(batch: TDataInst[], candidate: Candidate, capture_traces?: boolean): EvaluationBatch<TTrajectory, TRolloutOutput>;
+  evaluate(
+    batch: TDataInst[],
+    candidate: Candidate,
+    capture_traces?: boolean,
+  ): Promise<EvaluationBatch<TTrajectory, TRolloutOutput>>;
   make_reflective_dataset(
     candidate: Candidate,
     eval_batch: EvaluationBatch<TTrajectory, TRolloutOutput>,

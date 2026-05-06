@@ -1,14 +1,20 @@
 import type { GEPAStateLike, Stopper } from "./types";
 
+type CallableMaxMetricCallsStopper = MaxMetricCallsStopper & Stopper;
+type CallableCompositeStopper = CompositeStopper & Stopper;
+
 export class MaxMetricCallsStopper {
   readonly max_metric_calls: number;
 
   constructor(max_metric_calls: number) {
     this.max_metric_calls = max_metric_calls;
-  }
 
-  call(state: GEPAStateLike): boolean {
-    return state.total_num_evals >= this.max_metric_calls;
+    const callable: CallableMaxMetricCallsStopper = Object.assign(
+      (state: GEPAStateLike) => state.total_num_evals >= max_metric_calls,
+      { max_metric_calls },
+    );
+    Object.setPrototypeOf(callable, MaxMetricCallsStopper.prototype);
+    return callable;
   }
 }
 
@@ -17,20 +23,27 @@ export class CompositeStopper {
   readonly mode: "any" | "all";
 
   constructor(...args: Array<Stopper | "any" | "all">) {
-    const maybe_mode = args[args.length - 1];
-    if (maybe_mode === "any" || maybe_mode === "all") {
-      this.mode = maybe_mode;
-      this.stoppers = args.slice(0, -1) as Stopper[];
-    } else {
-      this.mode = "any";
-      this.stoppers = args as Stopper[];
-    }
-  }
+    const maybe_mode = args.at(-1);
+    const has_explicit_mode = maybe_mode === "any" || maybe_mode === "all";
+    const mode: "any" | "all" = has_explicit_mode ? maybe_mode : "any";
+    const stoppers = (has_explicit_mode ? args.slice(0, -1) : args) as Stopper[];
 
-  call(state: GEPAStateLike): boolean {
-    if (this.mode === "any") {
-      return this.stoppers.some((stopper) => stopper(state));
-    }
-    return this.stoppers.every((stopper) => stopper(state));
+    this.mode = mode;
+    this.stoppers = stoppers;
+
+    const callable: CallableCompositeStopper = Object.assign(
+      (state: GEPAStateLike) => {
+        if (mode === "any") {
+          return stoppers.some((stopper) => stopper(state));
+        }
+        return stoppers.every((stopper) => stopper(state));
+      },
+      {
+        mode,
+        stoppers,
+      },
+    );
+    Object.setPrototypeOf(callable, CompositeStopper.prototype);
+    return callable;
   }
 }
