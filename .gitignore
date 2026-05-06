@@ -5,5 +5,8 @@ dist/
 .env
 .env.local
 coverage/
+*.sock
 .vitest-cache/
 .flt/
+__pycache__/
+*.py[cod]
