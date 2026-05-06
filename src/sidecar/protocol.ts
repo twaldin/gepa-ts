@@ -64,6 +64,40 @@ export function is_json_rpc_response(x: unknown): x is JsonRpcResponse {
   return 'result' in x || 'error' in x;
 }
 
+function is_seed_candidate(v: unknown): boolean {
+  if (v === null || typeof v === 'string') return true;
+  if (typeof v !== 'object') return false;
+  for (const k in v as Record<string, unknown>) {
+    if (typeof (v as Record<string, unknown>)[k] !== 'string') return false;
+  }
+  return true;
+}
+
+function is_engine_shape(v: unknown): boolean {
+  if (typeof v !== 'object' || v === null) return false;
+  const eng = v as Record<string, unknown>;
+  if (eng.max_metric_calls !== undefined && typeof eng.max_metric_calls !== 'number') return false;
+  if (eng.seed !== undefined && typeof eng.seed !== 'number') return false;
+  return true;
+}
+
+function is_reflection_shape(v: unknown): boolean {
+  if (typeof v !== 'object' || v === null) return false;
+  const ref = v as Record<string, unknown>;
+  if (ref.reflection_lm_handle !== undefined && typeof ref.reflection_lm_handle !== 'string') return false;
+  if (ref.reflection_minibatch_size !== undefined && typeof ref.reflection_minibatch_size !== 'number') return false;
+  return true;
+}
+
+function is_config_shape(v: unknown): boolean {
+  if (typeof v !== 'object' || v === null) return false;
+  const cfg = v as Record<string, unknown>;
+  if (cfg.engine !== undefined && !is_engine_shape(cfg.engine)) return false;
+  if (cfg.reflection !== undefined && !is_reflection_shape(cfg.reflection)) return false;
+  if (cfg.tracking !== undefined && (typeof cfg.tracking !== 'object' || cfg.tracking === null)) return false;
+  return true;
+}
+
 export function is_optimize_request(x: unknown): x is JsonRpcRequest<OptimizeRequestParams> {
   if (typeof x !== 'object' || x === null) return false;
   if (!has_string_prop(x, 'jsonrpc') || x.jsonrpc !== '2.0') return false;
@@ -72,6 +106,14 @@ export function is_optimize_request(x: unknown): x is JsonRpcRequest<OptimizeReq
   if (!('params' in x)) return false;
   const params = (x as Record<string, unknown>)['params'];
   if (typeof params !== 'object' || params === null) return false;
-  if (!has_string_prop(params as object, 'evaluator_handle')) return false;
+  const p = params as Record<string, unknown>;
+  if (typeof p.evaluator_handle !== 'string') return false;
+  if (p.reflection_lm_handle !== null && typeof p.reflection_lm_handle !== 'string') return false;
+  if (p.objective !== null && typeof p.objective !== 'string') return false;
+  if (p.background !== null && typeof p.background !== 'string') return false;
+  if (p.dataset !== null && !Array.isArray(p.dataset)) return false;
+  if (p.valset !== null && !Array.isArray(p.valset)) return false;
+  if (!is_seed_candidate(p.seed_candidate)) return false;
+  if (!is_config_shape(p.config)) return false;
   return true;
 }
