@@ -43,10 +43,10 @@
   ],
   "scripts": {
     "build": "tsup",
-    "dev:sidecar": "echo 'sidecar not yet implemented (reserved for n6)'",
-    "build:sidecar": "echo 'sidecar not yet implemented (reserved for n6)'",
+    "build:sidecar": "tsup src/sidecar/main.ts --format cjs --out-dir dist/sidecar",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:pytest-shim": "bash tests/run-pytest-shim.sh",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
