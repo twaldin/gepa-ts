@@ -5,6 +5,7 @@ import type {
   CandidateSelector,
   DataId,
   DataLoader,
+  EvaluatorOptState,
   GEPAAdapter,
   GEPACallback,
   LanguageModel,
@@ -12,6 +13,8 @@ import type {
   ReflectionComponentSelector,
   SubsampleEvaluation,
 } from './types.js';
+import { SINGLE_INSTANCE_SENTINEL } from './types.js';
+import { SINGLE_INSTANCE_BEST_EVALS_KEY } from './state.js';
 import type { GEPAState } from './state.js';
 import { InstructionProposalSignature } from './instruction_proposal.js';
 import { notify_callbacks } from './callbacks.js';
@@ -47,6 +50,7 @@ export class ReflectiveMutationProposer<TDataId extends DataId = DataId, TDataIn
   private readonly reflection_prompt_template: string | Record<string, string> | null;
   private readonly custom_candidate_proposer: ProposalFn | null;
   private readonly callbacks: GEPACallback[] | null;
+  private readonly best_example_evals_k: number;
   private readonly _missing_template_warnings: Set<string>;
 
   constructor(opts: {
@@ -62,6 +66,7 @@ export class ReflectiveMutationProposer<TDataId extends DataId = DataId, TDataIn
     reflection_prompt_template?: string | Record<string, string> | null;
     custom_candidate_proposer?: ProposalFn | null;
     callbacks?: GEPACallback[] | null;
+    best_example_evals_k?: number;
   }) {
     this.logger = opts.logger;
     this.trainset = opts.trainset;
@@ -75,6 +80,7 @@ export class ReflectiveMutationProposer<TDataId extends DataId = DataId, TDataIn
     this.reflection_prompt_template = opts.reflection_prompt_template ?? null;
     this.custom_candidate_proposer = opts.custom_candidate_proposer ?? null;
     this.callbacks = opts.callbacks ?? null;
+    this.best_example_evals_k = opts.best_example_evals_k ?? 30;
     this._missing_template_warnings = new Set();
 
     if (typeof opts.reflection_prompt_template === 'object' && opts.reflection_prompt_template !== null) {
@@ -193,6 +199,27 @@ export class ReflectiveMutationProposer<TDataId extends DataId = DataId, TDataIn
     };
   }
 
+  private _best_evals_key_for_id(data_id: TDataId): TDataId {
+    return (String(data_id) === String(SINGLE_INSTANCE_SENTINEL) ? SINGLE_INSTANCE_BEST_EVALS_KEY : data_id) as TDataId;
+  }
+
+  private _build_opt_states(state: GEPAState, data_ids: TDataId[]): EvaluatorOptState[] {
+    return data_ids.map((data_id) => ({
+      best_example_evals: [...(state.best_example_evals.get(this._best_evals_key_for_id(data_id)) ?? [])],
+    }));
+  }
+
+  private _record_eval_batch(state: GEPAState, data_ids: TDataId[], scores: number[], side_infos?: Record<string, unknown>[]): void {
+    for (let idx = 0; idx < data_ids.length; idx += 1) {
+      const data_id = data_ids[idx];
+      const score = scores[idx];
+      if (data_id === undefined || score === undefined) {
+        continue;
+      }
+      state.record_example_eval(data_id, score, side_infos?.[idx] ?? {}, this.best_example_evals_k);
+    }
+  }
+
   async execute_proposal(ctx: ProposalContext<TDataId>, state: GEPAState): Promise<ProposalOutput<TDataId>> {
     const i = ctx.iteration;
     const trace_data: Record<string, unknown> = {
@@ -211,9 +238,11 @@ export class ReflectiveMutationProposer<TDataId extends DataId = DataId, TDataIn
       is_seed_candidate: ctx.is_seed_candidate,
     });
 
-    const eval_curr = await this.adapter.evaluate(ctx.minibatch, ctx.curr_prog, true);
+    const eval_curr_opt_states = this._build_opt_states(state, ctx.subsample_ids);
+    const eval_curr = await this.adapter.evaluate(ctx.minibatch, ctx.curr_prog, true, eval_curr_opt_states);
     total_evals += eval_curr.num_metric_calls ?? ctx.subsample_ids.length;
     trace_data['subsample_scores'] = eval_curr.scores;
+    this._record_eval_batch(state, ctx.subsample_ids, eval_curr.scores, eval_curr.side_infos);
 
     notify_callbacks(this.callbacks ?? undefined, 'on_evaluation_end', {
       iteration: i,
@@ -333,10 +362,12 @@ export class ReflectiveMutationProposer<TDataId extends DataId = DataId, TDataIn
       is_seed_candidate: false,
     });
 
-    const eval_after = await this.adapter.evaluate(ctx.minibatch, new_candidate, true);
+    const eval_after_opt_states = this._build_opt_states(state, ctx.subsample_ids);
+    const eval_after = await this.adapter.evaluate(ctx.minibatch, new_candidate, true, eval_after_opt_states);
     const new_scores = eval_after.scores;
     const new_outputs = eval_after.outputs;
     total_evals += eval_after.num_metric_calls ?? ctx.subsample_ids.length;
+    this._record_eval_batch(state, ctx.subsample_ids, new_scores, eval_after.side_infos);
 
     notify_callbacks(this.callbacks ?? undefined, 'on_evaluation_end', {
       iteration: i,

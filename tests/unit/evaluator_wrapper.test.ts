@@ -25,9 +25,9 @@ describe("EvaluatorWrapper", () => {
 
   test("multi-task + dict candidate + tuple", async () => {
     const candidate = { prompt: "x" };
-    const evaluator = (arg_candidate: string | Candidate, ctx: { example: unknown }): [number, SideInfo] => {
+    const evaluator = (arg_candidate: string | Candidate, ctx: { example?: unknown; opt_state?: unknown }): [number, SideInfo] => {
       expect(arg_candidate).toEqual(candidate);
-      expect(ctx).toEqual({ example: 42 });
+      expect(ctx).toEqual({ example: 42, opt_state: { best_example_evals: [] } });
       return [0.3, {}];
     };
     const wrapper = new EvaluatorWrapper(evaluator, false, false);

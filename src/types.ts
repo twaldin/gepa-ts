@@ -15,15 +15,20 @@ export type ChatMessage = {
 };
 
 export type EvalResult = number | [number, SideInfo];
+export interface EvaluatorOptState {
+  best_example_evals: Array<{ score: number; side_info: Record<string, unknown> }>;
+}
+
 export type Evaluator = {
   (candidate: string | Candidate): EvalResult | Promise<EvalResult>;
-  (candidate: string | Candidate, ctx: { example: unknown }): EvalResult | Promise<EvalResult>;
+  (candidate: string | Candidate, ctx: { example?: unknown; opt_state?: EvaluatorOptState }): EvalResult | Promise<EvalResult>;
 };
 
 export interface EvaluationBatch<TTrajectory = Trajectory, TRolloutOutput = RolloutOutput> {
   outputs: TRolloutOutput[];
   scores: number[];
   trajectories?: TTrajectory[];
+  side_infos?: SideInfo[];
   objective_scores?: Array<Record<string, number>>;
   num_metric_calls?: number;
 }
@@ -39,6 +44,7 @@ export interface GEPAAdapter<TDataInst = DataInst, TTrajectory = Trajectory, TRo
     batch: TDataInst[],
     candidate: Candidate,
     capture_traces?: boolean,
+    opt_states?: Array<EvaluatorOptState | undefined>,
   ): Promise<EvaluationBatch<TTrajectory, TRolloutOutput>>;
   make_reflective_dataset(
     candidate: Candidate,

@@ -52,7 +52,7 @@ export interface CallbackInvokeParams {
 }
 
 export interface EvaluatorCtx {
-  example: unknown;
+  example?: unknown;
   opt_state?: {
     best_example_evals: Array<{ score: number; side_info: Record<string, unknown> }>;
   };

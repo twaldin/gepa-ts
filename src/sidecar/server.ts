@@ -136,7 +136,7 @@ function build_remote_callback(
 }
 
 export function create_server(): net.Server {
-  return net.createServer((socket) => {
+  return net.createServer((socket: net.Socket) => {
     const pending = new Map<string | number, (r: JsonRpcResponse) => void>();
 
     const rl = readline.createInterface({ input: socket, crlfDelay: Infinity });
@@ -167,7 +167,7 @@ export function create_server(): net.Server {
       });
     }
 
-    rl.on('line', (line) => {
+    rl.on('line', (line: string) => {
       let parsed: unknown;
       try {
         parsed = JSON.parse(line);
@@ -197,7 +197,10 @@ export function create_server(): net.Server {
         candidate: string | Record<string, string>,
         ctx?: EvaluatorCtx,
       ): Promise<EvalResult> => {
-        const args: unknown[] = ctx !== undefined ? [candidate, ctx] : [candidate];
+        const args: unknown[] =
+          ctx !== undefined
+            ? [candidate, { example: ctx.example, opt_state: ctx.opt_state }]
+            : [candidate];
         return send_remote_call(evaluator_handle, '__call__', args).then(parse_eval_result);
       }) as Evaluator;
 

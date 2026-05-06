@@ -1,4 +1,4 @@
-import type { Candidate } from "./types";
+import { SINGLE_INSTANCE_SENTINEL, type Candidate } from "./types";
 
 export type ObjectiveScores = Record<string, number>;
 export type SupportedFrontierType = "instance" | "objective" | "hybrid" | "cartesian";
@@ -18,6 +18,8 @@ export class ValsetEvaluation<RolloutOutput = unknown, DataId extends string | n
     this.objective_scores_by_val_id = opts.objective_scores_by_val_id ?? null;
   }
 }
+
+export const SINGLE_INSTANCE_BEST_EVALS_KEY = "__single_instance__";
 
 export class GEPAState<RolloutOutput = unknown, DataId extends string | number = string | number> {
   program_candidates: Candidate[];
@@ -39,6 +41,7 @@ export class GEPAState<RolloutOutput = unknown, DataId extends string | number =
   frontier_type: SupportedFrontierType;
   evaluation_cache: null;
   adapter_state: Record<string, unknown>;
+  best_example_evals: Map<DataId, Array<{ score: number; side_info: Record<string, unknown> }>>;
 
   private _budget_hooks?: Array<(new_total: number, delta: number) => void>;
 
@@ -83,6 +86,7 @@ export class GEPAState<RolloutOutput = unknown, DataId extends string | number =
       : null;
     this.evaluation_cache = null;
     this.adapter_state = {};
+    this.best_example_evals = new Map();
   }
 
   is_consistent(): boolean {
@@ -153,6 +157,16 @@ export class GEPAState<RolloutOutput = unknown, DataId extends string | number =
         hook(this.total_num_evals, count);
       }
     }
+  }
+
+  record_example_eval(val_id: DataId, score: number, side_info: Record<string, unknown>, k: number): void {
+    const key = (String(val_id) === String(SINGLE_INSTANCE_SENTINEL)
+      ? SINGLE_INSTANCE_BEST_EVALS_KEY
+      : val_id) as DataId;
+    const existing = this.best_example_evals.get(key) ?? [];
+    existing.push({ score, side_info });
+    existing.sort((a, b) => b.score - a.score);
+    this.best_example_evals.set(key, existing.slice(0, k));
   }
 
   static _aggregate_objective_scores<DataId extends string | number>(

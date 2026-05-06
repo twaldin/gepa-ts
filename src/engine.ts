@@ -3,11 +3,14 @@ import type {
   Candidate,
   DataId,
   EvaluationPolicy,
+  EvaluatorOptState,
   FrontierType,
   GEPAAdapter,
   GEPACallback,
   Stopper,
 } from './types.js';
+import { SINGLE_INSTANCE_SENTINEL } from './types.js';
+import { SINGLE_INSTANCE_BEST_EVALS_KEY } from './state.js';
 import { GEPAState, ValsetEvaluation, initialize_gepa_state } from './state.js';
 import { ReflectiveMutationProposer } from './proposer.js';
 import type { ProposalOutput } from './proposer.js';
@@ -30,6 +33,7 @@ export class GEPAEngine {
   private readonly stop_callback: Stopper | null;
   private readonly val_evaluation_policy: EvaluationPolicy;
   private readonly acceptance_criterion: AcceptanceCriterion;
+  private readonly best_example_evals_k: number;
   private _stop_requested: boolean;
 
   constructor(opts: {
@@ -47,6 +51,7 @@ export class GEPAEngine {
     stop_callback?: Stopper | null;
     val_evaluation_policy?: EvaluationPolicy | null;
     acceptance_criterion?: AcceptanceCriterion | null;
+    best_example_evals_k?: number;
   }) {
     this.adapter = opts.adapter;
     this.valset = opts.valset;
@@ -62,7 +67,29 @@ export class GEPAEngine {
     this.stop_callback = opts.stop_callback ?? null;
     this.val_evaluation_policy = opts.val_evaluation_policy ?? new FullEvaluationPolicy();
     this.acceptance_criterion = opts.acceptance_criterion ?? new StrictImprovementAcceptance();
+    this.best_example_evals_k = opts.best_example_evals_k ?? 30;
     this._stop_requested = false;
+  }
+
+  private _best_evals_key_for_id(val_id: DataId): DataId {
+    return (String(val_id) === String(SINGLE_INSTANCE_SENTINEL) ? SINGLE_INSTANCE_BEST_EVALS_KEY : val_id) as DataId;
+  }
+
+  private _build_opt_states(state: GEPAState, val_ids: DataId[]): EvaluatorOptState[] {
+    return val_ids.map((val_id) => ({
+      best_example_evals: [...(state.best_example_evals.get(this._best_evals_key_for_id(val_id)) ?? [])],
+    }));
+  }
+
+  private _record_eval_batch(state: GEPAState, val_ids: DataId[], scores: number[], side_infos?: Record<string, unknown>[]): void {
+    for (let idx = 0; idx < val_ids.length; idx += 1) {
+      const val_id = val_ids[idx];
+      const score = scores[idx];
+      if (val_id === undefined || score === undefined) {
+        continue;
+      }
+      state.record_example_eval(val_id, score, side_infos?.[idx] ?? {}, this.best_example_evals_k);
+    }
   }
 
   private async _evaluate_on_valset(program: Candidate, state: GEPAState): Promise<ValsetEvaluation> {
@@ -71,7 +98,8 @@ export class GEPAEngine {
 
     const val_ids = this.val_evaluation_policy.get_eval_batch(valset, state);
     const batch = valset.fetch(val_ids);
-    const eval_result = await this.adapter.evaluate(batch, program, false);
+    const opt_states = this._build_opt_states(state, val_ids);
+    const eval_result = await this.adapter.evaluate(batch, program, false, opt_states);
 
     const outputs_by_val_id = new Map<DataId, unknown>();
     const scores_by_val_id = new Map<DataId, number>();
@@ -92,6 +120,7 @@ export class GEPAEngine {
       }
     }
 
+    this._record_eval_batch(state, val_ids, eval_result.scores, eval_result.side_infos);
     state.increment_evals(val_ids.length);
 
     return new ValsetEvaluation({
@@ -238,37 +267,35 @@ export class GEPAEngine {
     const valset = this.valset;
     if (valset === null) throw new Error('valset must be provided to GEPAEngine.run()');
 
-    const valset_evaluator = async (program: Candidate): Promise<ValsetEvaluation> => {
-      const all_ids = valset.all_ids();
-      const batch = valset.fetch(all_ids);
-      const eval_result = await this.adapter.evaluate(batch, program, false);
+    const all_ids = valset.all_ids();
+    const seed_batch = valset.fetch(all_ids);
+    const seed_opt_states: EvaluatorOptState[] = all_ids.map(() => ({ best_example_evals: [] }));
+    const seed_eval_result = await this.adapter.evaluate(seed_batch, this.seed_candidate, false, seed_opt_states);
 
-      const outputs_by_val_id = new Map<DataId, unknown>();
-      const scores_by_val_id = new Map<DataId, number>();
-      let objective_scores_by_val_id: Map<DataId, Record<string, number>> | null = null;
+    const seed_outputs_by_val_id = new Map<DataId, unknown>();
+    const seed_scores_by_val_id = new Map<DataId, number>();
+    let seed_objective_scores_by_val_id: Map<DataId, Record<string, number>> | null = null;
 
-      if (eval_result.objective_scores) {
-        objective_scores_by_val_id = new Map();
+    if (seed_eval_result.objective_scores) {
+      seed_objective_scores_by_val_id = new Map();
+    }
+
+    for (let idx = 0; idx < all_ids.length; idx++) {
+      const val_id = all_ids[idx];
+      if (val_id === undefined) continue;
+      seed_outputs_by_val_id.set(val_id, seed_eval_result.outputs[idx]);
+      const score = seed_eval_result.scores[idx];
+      if (score !== undefined) seed_scores_by_val_id.set(val_id, score);
+      if (seed_objective_scores_by_val_id && seed_eval_result.objective_scores) {
+        seed_objective_scores_by_val_id.set(val_id, seed_eval_result.objective_scores[idx] ?? {});
       }
+    }
 
-      for (let idx = 0; idx < all_ids.length; idx++) {
-        const val_id = all_ids[idx];
-        if (val_id === undefined) continue;
-        outputs_by_val_id.set(val_id, eval_result.outputs[idx]);
-        const score = eval_result.scores[idx];
-        if (score !== undefined) scores_by_val_id.set(val_id, score);
-        if (objective_scores_by_val_id && eval_result.objective_scores) {
-          objective_scores_by_val_id.set(val_id, eval_result.objective_scores[idx] ?? {});
-        }
-      }
-
-      return new ValsetEvaluation({
-        outputs_by_val_id,
-        scores_by_val_id,
-        objective_scores_by_val_id,
-      });
-    };
-
+    const seed_valset_evaluation = new ValsetEvaluation({
+      outputs_by_val_id: seed_outputs_by_val_id,
+      scores_by_val_id: seed_scores_by_val_id,
+      objective_scores_by_val_id: seed_objective_scores_by_val_id,
+    });
     notify_callbacks(this.callbacks ?? undefined, 'on_optimization_start', {
       seed_candidate: this.seed_candidate,
       trainset_size: this.reflective_proposer.trainset.length,
@@ -280,7 +307,6 @@ export class GEPAEngine {
       },
     });
 
-    const seed_valset_evaluation = await valset_evaluator(this.seed_candidate);
 
     const state = initialize_gepa_state({
       run_dir: null,
@@ -290,6 +316,8 @@ export class GEPAEngine {
       track_best_outputs: this.track_best_outputs,
       frontier_type: this.frontier_type,
     });
+
+    this._record_eval_batch(state, all_ids, seed_eval_result.scores, seed_eval_result.side_infos);
 
     const base_val_avg = state.get_program_average_val_subset(0)[0];
     this.logger.log(
