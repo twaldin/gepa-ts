@@ -1,6 +1,9 @@
 {
   "name": "@twaldin/gepa-ts",
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "1-1 TypeScript port of gepa.optimize_anything (Genetic-Pareto reflective text evolution). Zero runtime deps, BYO LLM adapter, dual ESM/CJS, Node + Bun + Deno.",
   "license": "MIT",
   "author": "Tim Waldin",
@@ -44,6 +47,7 @@
   "scripts": {
     "build": "tsup",
     "build:sidecar": "tsup src/sidecar/main.ts --format cjs --out-dir dist/sidecar",
+    "prepublishOnly": "bun run build && bun run typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:pytest-shim": "bash tests/run-pytest-shim.sh",

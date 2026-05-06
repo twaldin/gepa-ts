@@ -1,5 +1,6 @@
 import * as net from 'node:net';
 import * as readline from 'node:readline';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { optimize_anything } from '../index.js';
 import { EvaluatorWrapper } from '../evaluator_wrapper.js';
 import { LogContext, runWithLogContext } from '../log_context.js';
@@ -70,23 +71,40 @@ function build_remote_callback(handle: string, methods: string[], send: (h: stri
   return cb;
 }
 
+interface WrapperConfig {
+  evaluatorHandle: string;
+  singleInstanceMode: boolean;
+  captureStdio: boolean;
+  strCandidateMode: boolean;
+  raiseOnException: boolean;
+}
+const _logContexts = new Map<string, LogContext>();
+const _threadContexts = new Map<number, LogContext | null>();
+const _wrappers = new Map<string, WrapperConfig>();
+let _handleCounter = 0;
+const _callLogCtxHandleAls = new AsyncLocalStorage<string | null>();
+function _nextHandle(prefix: string): string { _handleCounter += 1; return `${prefix}-${_handleCounter}`; }
+
 export function create_server(): net.Server {
   return net.createServer((socket: net.Socket) => {
     const pending = new Map<string | number, (r: JsonRpcResponse) => void>();
-    const logContexts = new Map<string, LogContext>();
-    const threadContexts = new Map<number, LogContext | null>();
-    const wrappers = new Map<string, EvaluatorWrapper>();
+    const logContexts = _logContexts;
+    const threadContexts = _threadContexts;
+    const wrappers = _wrappers;
     const rl = readline.createInterface({ input: socket, crlfDelay: Infinity });
-    let handleCounter = 0;
+    const callLogCtxHandleAls = _callLogCtxHandleAls;
 
-    function nextHandle(prefix: string): string { handleCounter += 1; return `${prefix}-${handleCounter}`; }
+    function nextHandle(prefix: string): string { return _nextHandle(prefix); }
     function write_line(obj: unknown): void { socket.write(JSON.stringify(obj) + '\n'); }
 
     function send_remote_call(handle: string, method: string, args: unknown[]): Promise<unknown> {
       const id = next_cb_id();
+      const log_ctx_handle = callLogCtxHandleAls.getStore() ?? null;
       return new Promise<unknown>((resolve, reject) => {
         pending.set(id, (r: JsonRpcResponse) => r.error !== undefined ? reject(new Error(r.error.message)) : resolve(r.result));
-        write_line({ jsonrpc: '2.0', id, method: 'callback_invoke', params: { handle, method, args } as CallbackInvokeParams });
+        const cbParams: CallbackInvokeParams & { log_ctx_handle?: string } = { handle, method, args };
+        if (log_ctx_handle !== null) cbParams.log_ctx_handle = log_ctx_handle;
+        write_line({ jsonrpc: '2.0', id, method: 'callback_invoke', params: cbParams });
       });
     }
 
@@ -219,19 +237,14 @@ export function create_server(): net.Server {
             write_line({ jsonrpc: '2.0', id, error: { code: -32602, message: 'Invalid params' } });
             return;
           }
-          const evaluator: Evaluator = ((candidate: string | Record<string, string>, ctx?: EvaluatorCtx) => {
-            const args: unknown[] = ctx !== undefined ? [candidate, ctx] : [candidate];
-            return send_remote_call(evaluatorHandle, '__call__', args).then(parse_eval_result);
-          }) as Evaluator;
-          const wrapper = new EvaluatorWrapper(
-            evaluator,
-            singleInstanceMode,
-            params['capture_stdio'] === true,
-            params['str_candidate_mode'] === true,
-            params['raise_on_exception'] !== false,
-          );
           const handle = nextHandle('evalwrap');
-          wrappers.set(handle, wrapper);
+          wrappers.set(handle, {
+            evaluatorHandle,
+            singleInstanceMode,
+            captureStdio: params['capture_stdio'] === true,
+            strCandidateMode: params['str_candidate_mode'] === true,
+            raiseOnException: params['raise_on_exception'] !== false,
+          });
           write_line({ jsonrpc: '2.0', id, result: handle });
           return;
         }
@@ -242,8 +255,8 @@ export function create_server(): net.Server {
             write_line({ jsonrpc: '2.0', id, error: { code: -32602, message: 'Invalid params' } });
             return;
           }
-          const wrapper = wrappers.get(handle);
-          if (wrapper === undefined) {
+          const cfg = wrappers.get(handle);
+          if (cfg === undefined) {
             write_line({ jsonrpc: '2.0', id, error: { code: -32602, message: 'Invalid params' } });
             return;
           }
@@ -252,11 +265,29 @@ export function create_server(): net.Server {
             typeof opt === 'object' && opt !== null && Array.isArray((opt as { best_example_evals?: unknown }).best_example_evals)
               ? ((opt as { best_example_evals: Array<{ score: number; side_info: Record<string, unknown> }> }).best_example_evals)
               : [];
-          wrapper.call(candidate as Record<string, string>, params['example'], { best_example_evals: best }).then((ret) => {
-            write_line({ jsonrpc: '2.0', id, result: ret });
-          }).catch((err: unknown) => {
-            const message = err instanceof Error ? err.message : String(err);
-            write_line({ jsonrpc: '2.0', id, error: { code: -32000, message } });
+          const evaluator: Evaluator = ((c: string | Record<string, string>, ctx?: EvaluatorCtx) => {
+            const args: unknown[] = ctx !== undefined ? [c, ctx] : [c];
+            return send_remote_call(cfg.evaluatorHandle, '__call__', args).then(parse_eval_result);
+          }) as Evaluator;
+          const wrapper = new EvaluatorWrapper(
+            evaluator,
+            cfg.singleInstanceMode,
+            cfg.captureStdio,
+            cfg.strCandidateMode,
+            cfg.raiseOnException,
+          );
+          const callLogContext = new LogContext();
+          const callLogCtxHandle = nextHandle('logctx');
+          logContexts.set(callLogCtxHandle, callLogContext);
+          callLogCtxHandleAls.run(callLogCtxHandle, () => {
+            wrapper.call(candidate as Record<string, string>, params['example'], { best_example_evals: best }, callLogContext).then((ret) => {
+              write_line({ jsonrpc: '2.0', id, result: ret });
+            }).catch((err: unknown) => {
+              const message = err instanceof Error ? err.message : String(err);
+              write_line({ jsonrpc: '2.0', id, error: { code: -32000, message } });
+            }).finally(() => {
+              logContexts.delete(callLogCtxHandle);
+            });
           });
           return;
         }

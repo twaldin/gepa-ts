@@ -89,9 +89,10 @@ export class EvaluatorWrapper {
     candidate: Candidate,
     example?: unknown,
     opt_state: EvaluatorOptState = { best_example_evals: [] },
+    providedLogContext?: LogContext,
   ): Promise<[number, unknown, SideInfo]> {
     const eval_candidate: string | Candidate = this.str_candidate_mode ? (candidate[STR_CANDIDATE_KEY] ?? '') : candidate;
-    const logContext = new LogContext();
+    const logContext = providedLogContext ?? new LogContext();
     const stdioBucket = this.capture_stdio ? { stdout: [] as string[], stderr: [] as string[] } : null;
 
     try {

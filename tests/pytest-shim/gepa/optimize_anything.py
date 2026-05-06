@@ -24,82 +24,105 @@ class OptimizationState:
 # Sidecar RPC helpers / LogContext / EvaluatorWrapper
 # ---------------------------------------------------------------------------
 
-_sock_singleton = None
-_rfile_singleton = None
-_rpc_lock = threading.RLock()
+_tls = threading.local()
 _rpc_counter = 0
+_rpc_counter_lock = threading.Lock()
 _warned_log_outside = False
 _thread_handles: dict[int, str | None] = {}
 _callbacks_registry: dict[tuple[str, str], Callable] = {}
+_all_conns: list = []
+_all_conns_lock = threading.Lock()
 
 
 def _register_callback(handle: str, method: str, fn: Callable) -> None:
     _callbacks_registry[(handle, method)] = fn
 
 
-def _get_singleton_conn():
-    global _sock_singleton, _rfile_singleton
-    if _sock_singleton is not None and _rfile_singleton is not None:
-        return _sock_singleton, _rfile_singleton
+def _get_thread_conn():
+    sock = getattr(_tls, "sock", None)
+    rfile = getattr(_tls, "rfile", None)
+    if sock is not None and rfile is not None:
+        return sock, rfile
     sock_path = os.environ.get("GEPA_TS_SIDECAR_SOCKET", "/tmp/gepa-ts.sock")
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.connect(sock_path)
-    _sock_singleton = sock
-    _rfile_singleton = sock.makefile("r")
-    return _sock_singleton, _rfile_singleton
+    rfile = sock.makefile("r")
+    _tls.sock = sock
+    _tls.rfile = rfile
+    with _all_conns_lock:
+        _all_conns.append((sock, rfile))
+    return sock, rfile
 
 
-def _close_singleton_conn() -> None:
-    global _sock_singleton, _rfile_singleton
-    with _rpc_lock:
-        if _rfile_singleton is not None:
-            _rfile_singleton.close()
-        if _sock_singleton is not None:
-            _sock_singleton.close()
-        _sock_singleton = None
-        _rfile_singleton = None
+def _close_all_conns() -> None:
+    with _all_conns_lock:
+        for sock, rfile in _all_conns:
+            try:
+                rfile.close()
+            except Exception:
+                pass
+            try:
+                sock.close()
+            except Exception:
+                pass
+        _all_conns.clear()
+
+
+def _next_rpc_id() -> str:
+    global _rpc_counter
+    with _rpc_counter_lock:
+        _rpc_counter += 1
+        return f"rpc-{_rpc_counter}-t{threading.get_ident()}"
 
 
 def _rpc_call(method: str, params: dict) -> Any:
-    global _rpc_counter
-    with _rpc_lock:
-        sock, rfile = _get_singleton_conn()
-        _rpc_counter += 1
-        rid = f"rpc-{_rpc_counter}"
-        sock.sendall((json.dumps({"jsonrpc": "2.0", "id": rid, "method": method, "params": params}) + "\n").encode())
-        while True:
-            line = rfile.readline()
-            if not line:
-                raise EOFError("sidecar closed connection")
-            msg = json.loads(line)
+    sock, rfile = _get_thread_conn()
+    rid = _next_rpc_id()
+    sock.sendall((json.dumps({"jsonrpc": "2.0", "id": rid, "method": method, "params": params}) + "\n").encode())
+    while True:
+        line = rfile.readline()
+        if not line:
+            raise EOFError("sidecar closed connection")
+        msg = json.loads(line)
 
-            if msg.get("method") == "callback_invoke":
-                invoke_id = msg["id"]
-                cb_params = msg["params"]
-                handle = cb_params["handle"]
-                cb_method = cb_params.get("method", "__call__")
-                args = cb_params.get("args", [])
-                fn = _callbacks_registry.get((handle, cb_method))
-                if fn is None:
-                    sock.sendall((json.dumps({"jsonrpc": "2.0", "id": invoke_id, "error": {"code": -32601, "message": f"unknown callback ({handle}, {cb_method})"}}) + "\n").encode())
-                    continue
-                try:
-                    result = fn(*args)
-                    sock.sendall((json.dumps({"jsonrpc": "2.0", "id": invoke_id, "result": result}) + "\n").encode())
-                except Exception as exc:
-                    sock.sendall((json.dumps({"jsonrpc": "2.0", "id": invoke_id, "error": {"code": -32000, "message": str(exc)}}) + "\n").encode())
+        if msg.get("method") == "callback_invoke":
+            invoke_id = msg["id"]
+            cb_params = msg["params"]
+            handle = cb_params["handle"]
+            cb_method = cb_params.get("method", "__call__")
+            args = cb_params.get("args", [])
+            log_ctx_handle = cb_params.get("log_ctx_handle")
+            fn = _callbacks_registry.get((handle, cb_method))
+            if fn is None:
+                sock.sendall((json.dumps({"jsonrpc": "2.0", "id": invoke_id, "error": {"code": -32601, "message": f"unknown callback ({handle}, {cb_method})"}}) + "\n").encode())
                 continue
+            tid = threading.get_ident()
+            prev_handle = _thread_handles.get(tid)
+            if log_ctx_handle is not None:
+                _thread_handles[tid] = log_ctx_handle
+            try:
+                result = fn(*args)
+                sock.sendall((json.dumps({"jsonrpc": "2.0", "id": invoke_id, "result": result}) + "\n").encode())
+            except Exception as exc:
+                sock.sendall((json.dumps({"jsonrpc": "2.0", "id": invoke_id, "error": {"code": -32000, "message": str(exc)}}) + "\n").encode())
+            finally:
+                if log_ctx_handle is not None:
+                    if prev_handle is None:
+                        _thread_handles.pop(tid, None)
+                    else:
+                        _thread_handles[tid] = prev_handle
+            continue
 
-            if msg.get("id") != rid:
-                continue
-            if "error" in msg:
-                err = msg["error"]
-                raise RuntimeError(err.get("message", str(err)))
-            return msg.get("result")
+        if msg.get("id") != rid:
+            continue
+        if "error" in msg:
+            err = msg["error"]
+            raise RuntimeError(err.get("message", str(err)))
+        return msg.get("result")
 
 
 import atexit
-atexit.register(_close_singleton_conn)
+atexit.register(_close_all_conns)
 
 
 class LogContext:
