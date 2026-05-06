@@ -8,7 +8,7 @@ describe("EvaluatorWrapper", () => {
       expect(candidate).toBe("x");
       return [0.5, { foo: "bar" }];
     };
-    const wrapper = new EvaluatorWrapper(evaluator, true, true);
+    const wrapper = new EvaluatorWrapper(evaluator, true, false, true);
 
     await expect(wrapper.call({ [STR_CANDIDATE_KEY]: "x" })).resolves.toEqual([0.5, undefined, { foo: "bar" }]);
   });
@@ -18,7 +18,7 @@ describe("EvaluatorWrapper", () => {
       expect(candidate).toBe("x");
       return 0.7;
     };
-    const wrapper = new EvaluatorWrapper(evaluator, true, true);
+    const wrapper = new EvaluatorWrapper(evaluator, true, false, true);
 
     await expect(wrapper.call({ [STR_CANDIDATE_KEY]: "x" })).resolves.toEqual([0.7, undefined, {}]);
   });
@@ -30,7 +30,7 @@ describe("EvaluatorWrapper", () => {
       expect(ctx).toEqual({ example: 42, opt_state: { best_example_evals: [] } });
       return [0.3, {}];
     };
-    const wrapper = new EvaluatorWrapper(evaluator, false, false);
+    const wrapper = new EvaluatorWrapper(evaluator, false, false, false);
 
     await expect(wrapper.call(candidate, 42)).resolves.toEqual([0.3, undefined, {}]);
   });
@@ -38,7 +38,7 @@ describe("EvaluatorWrapper", () => {
   test("exception + raise_on_exception=true rethrows", async () => {
     const wrapper = new EvaluatorWrapper(() => {
       throw new Error("boom");
-    }, true, false, true);
+    }, true, false, false, true);
 
     await expect(wrapper.call({ prompt: "x" })).rejects.toThrow("boom");
   });
@@ -49,6 +49,7 @@ describe("EvaluatorWrapper", () => {
         throw new Error("boom");
       },
       true,
+      false,
       false,
       false,
     );
@@ -72,7 +73,7 @@ describe("EvaluatorWrapper", () => {
       expect(candidate).toBe("");
       return 0.2;
     };
-    const wrapper = new EvaluatorWrapper(evaluator, true, true);
+    const wrapper = new EvaluatorWrapper(evaluator, true, false, true);
 
     await expect(wrapper.call({ prompt: "x" })).resolves.toEqual([0.2, undefined, {}]);
   });

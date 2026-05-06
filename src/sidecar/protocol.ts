@@ -53,6 +53,38 @@ export interface CallbackInvokeParams {
   args: unknown[];
 }
 
+export interface ThreadedParams {
+  client_thread_id?: number;
+}
+
+export interface LogContextWriteParams extends ThreadedParams {
+  handle: string;
+  text: string;
+}
+
+export interface LogContextDrainParams extends ThreadedParams {
+  handle: string;
+}
+
+export interface SetLogContextParams extends ThreadedParams {
+  handle: string | null;
+}
+
+export interface EvaluatorWrapperCreateParams extends ThreadedParams {
+  evaluator_handle: string;
+  single_instance_mode: boolean;
+  capture_stdio?: boolean;
+  str_candidate_mode?: boolean;
+  raise_on_exception?: boolean;
+}
+
+export interface EvaluatorWrapperCallParams extends ThreadedParams {
+  handle: string;
+  candidate: string | Record<string, string>;
+  example?: unknown;
+  opt_state?: EvaluatorCtx['opt_state'];
+}
+
 export interface EvaluatorCtx {
   example?: unknown;
   opt_state?: {

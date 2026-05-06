@@ -30,6 +30,7 @@ import {
   optimize_anything_reflection_prompt_template,
   build_reflection_prompt_template,
 } from './reflection_prompt.js';
+export { LogContext, oa_log, getLogContext, setLogContext, getLogContextOrThrow } from './log_context.js';
 
 export interface OptimizeAnythingOpts {
   seed_candidate: string | Candidate;
@@ -71,6 +72,7 @@ export async function optimize_anything(opts: OptimizeAnythingOpts): Promise<GEP
   const wrapped_evaluator = new EvaluatorWrapper(
     evaluator,
     single_instance_mode,
+    engine_config.capture_stdio ?? false,
     str_candidate_mode,
     engine_config.raise_on_exception ?? true,
   );

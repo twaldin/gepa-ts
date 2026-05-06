@@ -9,6 +9,14 @@ declare module 'node:readline' {
   };
 }
 
+declare module 'node:async_hooks' {
+  export class AsyncLocalStorage<T> {
+    run<R>(store: T, callback: () => R): R;
+    getStore(): T | undefined;
+    enterWith(store: T): void;
+  }
+}
+
 declare module 'node:net' {
   export interface Socket {
     write(chunk: string): void;
@@ -27,7 +35,13 @@ declare module 'node:net' {
 declare const process: {
   argv: string[];
   env: Record<string, string | undefined>;
-  stderr: { write(chunk: string): void };
+  stdout: { write(chunk: string): boolean };
+  stderr: { write(chunk: string): boolean };
   on(event: 'SIGINT' | 'SIGTERM', listener: () => void): void;
   exit(code?: number): never;
+};
+
+declare const console: {
+  log: (...args: unknown[]) => void;
+  warn: (...args: unknown[]) => void;
 };
