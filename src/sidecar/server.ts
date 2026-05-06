@@ -22,9 +22,13 @@ function parse_eval_result(raw: unknown): EvalResult {
   if (typeof raw === 'number') return raw;
   if (Array.isArray(raw)) {
     const first = raw[0];
-    const second = raw[1];
     if (typeof first === 'number') {
-      return [first, to_side_info(second)];
+      // Upstream's adapter-internal EvaluatorWrapper yields a 3-tuple
+      // `(score, _trajectory, side_info)`; plain user evaluators yield
+      // `(score, side_info)`. Distinguish by length so log/stdout/stderr
+      // and best_example_evals side_info aren't silently dropped.
+      const side = raw.length >= 3 ? raw[2] : raw[1];
+      return [first, to_side_info(side)];
     }
   }
   throw new Error(`Unexpected evaluator result: ${JSON.stringify(raw)}`);
