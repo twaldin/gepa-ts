@@ -18,6 +18,11 @@ export interface JsonRpcError {
   data?: unknown;
 }
 
+export interface CallbackHandle {
+  id: string;
+  methods: string[];
+}
+
 export interface OptimizeRequestParams {
   seed_candidate: string | Record<string, string> | null;
   dataset: unknown[] | null;
@@ -37,11 +42,20 @@ export interface OptimizeRequestParams {
   };
   evaluator_handle: string;
   reflection_lm_handle: string | null;
+  callback_handles?: CallbackHandle[];
 }
 
 export interface CallbackInvokeParams {
   handle: string;
+  method: string;
   args: unknown[];
+}
+
+export interface EvaluatorCtx {
+  example: unknown;
+  opt_state?: {
+    best_example_evals: Array<{ score: number; side_info: Record<string, unknown> }>;
+  };
 }
 
 function has_string_prop<K extends string>(
@@ -98,6 +112,17 @@ function is_config_shape(v: unknown): boolean {
   return true;
 }
 
+function is_callback_handle(v: unknown): v is CallbackHandle {
+  if (typeof v !== 'object' || v === null) return false;
+  const h = v as Record<string, unknown>;
+  if (typeof h['id'] !== 'string') return false;
+  if (!Array.isArray(h['methods'])) return false;
+  for (const m of h['methods'] as unknown[]) {
+    if (typeof m !== 'string') return false;
+  }
+  return true;
+}
+
 export function is_optimize_request(x: unknown): x is JsonRpcRequest<OptimizeRequestParams> {
   if (typeof x !== 'object' || x === null) return false;
   if (!has_string_prop(x, 'jsonrpc') || x.jsonrpc !== '2.0') return false;
@@ -107,13 +132,19 @@ export function is_optimize_request(x: unknown): x is JsonRpcRequest<OptimizeReq
   const params = (x as Record<string, unknown>)['params'];
   if (typeof params !== 'object' || params === null) return false;
   const p = params as Record<string, unknown>;
-  if (typeof p.evaluator_handle !== 'string') return false;
-  if (p.reflection_lm_handle !== null && typeof p.reflection_lm_handle !== 'string') return false;
-  if (p.objective !== null && typeof p.objective !== 'string') return false;
-  if (p.background !== null && typeof p.background !== 'string') return false;
-  if (p.dataset !== null && !Array.isArray(p.dataset)) return false;
-  if (p.valset !== null && !Array.isArray(p.valset)) return false;
-  if (!is_seed_candidate(p.seed_candidate)) return false;
-  if (!is_config_shape(p.config)) return false;
+  if (typeof p['evaluator_handle'] !== 'string') return false;
+  if (p['reflection_lm_handle'] !== null && typeof p['reflection_lm_handle'] !== 'string') return false;
+  if (p['objective'] !== null && typeof p['objective'] !== 'string') return false;
+  if (p['background'] !== null && typeof p['background'] !== 'string') return false;
+  if (p['dataset'] !== null && !Array.isArray(p['dataset'])) return false;
+  if (p['valset'] !== null && !Array.isArray(p['valset'])) return false;
+  if (!is_seed_candidate(p['seed_candidate'])) return false;
+  if (!is_config_shape(p['config'])) return false;
+  if (p['callback_handles'] !== undefined) {
+    if (!Array.isArray(p['callback_handles'])) return false;
+    for (const h of p['callback_handles'] as unknown[]) {
+      if (!is_callback_handle(h)) return false;
+    }
+  }
   return true;
 }
