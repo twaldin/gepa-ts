@@ -1,0 +1,60 @@
+{
+  "name": "@twaldin/gepa-ts",
+  "version": "0.0.0",
+  "description": "1-1 TypeScript port of gepa.optimize_anything (Genetic-Pareto reflective text evolution). Zero runtime deps, BYO LLM adapter, dual ESM/CJS, Node + Bun + Deno.",
+  "license": "MIT",
+  "author": "Tim Waldin",
+  "homepage": "https://github.com/twaldin/gepa-ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/twaldin/gepa-ts.git"
+  },
+  "bugs": {
+    "url": "https://github.com/twaldin/gepa-ts/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20",
+    "bun": ">=1.0.0"
+  },
+  "keywords": [
+    "gepa",
+    "prompt-optimization",
+    "reflective-evolution",
+    "genetic-pareto",
+    "dspy",
+    "llm",
+    "typescript"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.0.0"
+  },
+  "gepa": {
+    "upstream": "https://github.com/gepa-ai/gepa",
+    "upstreamPin": "ce51b50cd196b539c25fae99ad0e0255c23004a4"
+  }
+}
