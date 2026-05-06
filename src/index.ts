@@ -84,10 +84,11 @@ export async function optimize_anything(opts: OptimizeAnythingOpts): Promise<GEP
   const train_loader = ensure_loader(effective_dataset);
   const val_loader = valset != null ? ensure_loader(valset) : train_loader;
 
-  const reflection_lm = reflection_config.reflection_lm ?? null;
-  if (typeof reflection_lm === 'string') {
+  const reflection_lm = reflection_config.reflection_lm;
+  if (typeof reflection_lm !== 'function') {
     throw new Error(
-      'reflection_lm must be a callable, not a string. BYO LM only (no litellm wrapper in v1).',
+      'optimize_anything: config.reflection.reflection_lm must be a function ' +
+        '(prompt: string) => Promise<string>. v1 is BYO LM — no built-in adapter.',
     );
   }
 
