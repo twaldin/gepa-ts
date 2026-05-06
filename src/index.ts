@@ -211,6 +211,8 @@ export async function optimize_anything(opts: OptimizeAnythingOpts): Promise<GEP
     }
   }
 
+  const best_example_evals_k = engine_config.best_example_evals_k ?? 30;
+
   const proposer = new ReflectiveMutationProposer({
     logger,
     trainset: train_loader,
@@ -224,6 +226,7 @@ export async function optimize_anything(opts: OptimizeAnythingOpts): Promise<GEP
     reflection_prompt_template,
     custom_candidate_proposer: reflection_config.custom_candidate_proposer ?? null,
     callbacks: config.callbacks ?? null,
+    best_example_evals_k,
   });
 
   const engine = new GEPAEngine({
@@ -241,6 +244,7 @@ export async function optimize_anything(opts: OptimizeAnythingOpts): Promise<GEP
     stop_callback,
     val_evaluation_policy,
     acceptance_criterion,
+    best_example_evals_k,
   });
 
   const state = await engine.run();
