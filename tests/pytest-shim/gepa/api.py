@@ -33,6 +33,19 @@ def optimize(
             raise ValueError(
                 f"Missing placeholder(s) in prompt template: {', '.join(missing)}"
             )
+    elif isinstance(reflection_prompt_template, dict):
+        for param_name, template in reflection_prompt_template.items():
+            if not isinstance(template, str):
+                raise ValueError(
+                    f"reflection_prompt_template['{param_name}'] must be a string"
+                )
+            missing = [
+                p for p in ["<curr_param>", "<side_info>"] if p not in template
+            ]
+            if missing:
+                raise ValueError(
+                    f"Missing placeholder(s) in prompt template for parameter '{param_name}': {', '.join(missing)}"
+                )
 
     def _evaluator(candidate, example):
         si: dict = {}

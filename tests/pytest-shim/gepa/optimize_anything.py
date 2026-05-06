@@ -369,8 +369,14 @@ def optimize_anything(
         and config.reflection is not None
         and config.reflection.reflection_lm is not None
     ):
+        reflection_lm = config.reflection.reflection_lm
+        if isinstance(reflection_lm, str) and reflection_lm.strip() != "":
+            def _string_reflection_lm_mock(prompt: str) -> str:
+                return "```\ncandidate\n```"
+
+            reflection_lm = _string_reflection_lm_mock
         reflection_lm_handle = "cb-reflection-lm"
-        callbacks_registry[(reflection_lm_handle, "__call__")] = config.reflection.reflection_lm
+        callbacks_registry[(reflection_lm_handle, "__call__")] = reflection_lm
 
     callback_handles = []
     if config is not None and config.callbacks:
