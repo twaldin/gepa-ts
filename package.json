@@ -43,6 +43,8 @@
   ],
   "scripts": {
     "build": "tsup",
+    "dev:sidecar": "tsup --watch src/sidecar.ts",
+    "build:sidecar": "tsup src/sidecar.ts --format esm --no-dts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
