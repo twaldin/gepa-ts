@@ -1,5 +1,4 @@
 import inspect
-import io
 import json
 import os
 import socket
@@ -9,7 +8,6 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any, Callable, Optional
 
-from gepa.utils.stdio_capture import ThreadLocalStreamCapture, stream_manager
 
 
 # ---------------------------------------------------------------------------
@@ -23,72 +21,157 @@ class OptimizationState:
 
 
 # ---------------------------------------------------------------------------
-# LogContext and oa.log()
+# Sidecar RPC helpers / LogContext / EvaluatorWrapper
 # ---------------------------------------------------------------------------
+
+_tls = threading.local()
+_rpc_counter = 0
+_rpc_counter_lock = threading.Lock()
+_warned_log_outside = False
+_thread_handles: dict[int, str | None] = {}
+_callbacks_registry: dict[tuple[str, str], Callable] = {}
+_all_conns: list = []
+_all_conns_lock = threading.Lock()
+
+
+def _register_callback(handle: str, method: str, fn: Callable) -> None:
+    _callbacks_registry[(handle, method)] = fn
+
+
+def _get_thread_conn():
+    sock = getattr(_tls, "sock", None)
+    rfile = getattr(_tls, "rfile", None)
+    if sock is not None and rfile is not None:
+        return sock, rfile
+    sock_path = os.environ.get("GEPA_TS_SIDECAR_SOCKET", "/tmp/gepa-ts.sock")
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.connect(sock_path)
+    rfile = sock.makefile("r")
+    _tls.sock = sock
+    _tls.rfile = rfile
+    with _all_conns_lock:
+        _all_conns.append((sock, rfile))
+    return sock, rfile
+
+
+def _close_all_conns() -> None:
+    with _all_conns_lock:
+        for sock, rfile in _all_conns:
+            try:
+                rfile.close()
+            except Exception:
+                pass
+            try:
+                sock.close()
+            except Exception:
+                pass
+        _all_conns.clear()
+
+
+def _next_rpc_id() -> str:
+    global _rpc_counter
+    with _rpc_counter_lock:
+        _rpc_counter += 1
+        return f"rpc-{_rpc_counter}-t{threading.get_ident()}"
+
+
+def _rpc_call(method: str, params: dict) -> Any:
+    sock, rfile = _get_thread_conn()
+    rid = _next_rpc_id()
+    sock.sendall((json.dumps({"jsonrpc": "2.0", "id": rid, "method": method, "params": params}) + "\n").encode())
+    while True:
+        line = rfile.readline()
+        if not line:
+            raise EOFError("sidecar closed connection")
+        msg = json.loads(line)
+
+        if msg.get("method") == "callback_invoke":
+            invoke_id = msg["id"]
+            cb_params = msg["params"]
+            handle = cb_params["handle"]
+            cb_method = cb_params.get("method", "__call__")
+            args = cb_params.get("args", [])
+            log_ctx_handle = cb_params.get("log_ctx_handle")
+            fn = _callbacks_registry.get((handle, cb_method))
+            if fn is None:
+                sock.sendall((json.dumps({"jsonrpc": "2.0", "id": invoke_id, "error": {"code": -32601, "message": f"unknown callback ({handle}, {cb_method})"}}) + "\n").encode())
+                continue
+            tid = threading.get_ident()
+            prev_handle = _thread_handles.get(tid)
+            if log_ctx_handle is not None:
+                _thread_handles[tid] = log_ctx_handle
+            try:
+                result = fn(*args)
+                sock.sendall((json.dumps({"jsonrpc": "2.0", "id": invoke_id, "result": result}) + "\n").encode())
+            except Exception as exc:
+                sock.sendall((json.dumps({"jsonrpc": "2.0", "id": invoke_id, "error": {"code": -32000, "message": str(exc)}}) + "\n").encode())
+            finally:
+                if log_ctx_handle is not None:
+                    if prev_handle is None:
+                        _thread_handles.pop(tid, None)
+                    else:
+                        _thread_handles[tid] = prev_handle
+            continue
+
+        if msg.get("id") != rid:
+            continue
+        if "error" in msg:
+            err = msg["error"]
+            raise RuntimeError(err.get("message", str(err)))
+        return msg.get("result")
+
+
+import atexit
+atexit.register(_close_all_conns)
 
 
 class LogContext:
     def __init__(self) -> None:
-        self._buffer = io.StringIO()
-        self._lock = threading.Lock()
+        self._handle = _rpc_call("log_context.create", {})
 
     def write(self, text: str) -> None:
-        with self._lock:
-            self._buffer.write(text)
+        _rpc_call("log_context.write", {"handle": self._handle, "text": text, "client_thread_id": threading.get_ident()})
 
     def drain(self) -> str:
-        with self._lock:
-            old = self._buffer
-            text = old.getvalue()
-            old.close()
-            self._buffer = io.StringIO()
-            return text
-
-
-_log_tls = threading.local()
-
-
-def _get_log_context() -> "LogContext | None":
-    return getattr(_log_tls, "context", None)
-
-
-def _set_log_context(ctx: "LogContext | None") -> None:
-    _log_tls.context = ctx
+        out = _rpc_call("log_context.drain", {"handle": self._handle, "client_thread_id": threading.get_ident()})
+        return out if isinstance(out, str) else ""
 
 
 def get_log_context() -> LogContext:
-    ctx = _get_log_context()
-    if ctx is None:
+    tid = threading.get_ident()
+    handle = _thread_handles.get(tid)
+    if handle is None:
         raise RuntimeError(
             "No active log context. get_log_context() must be called inside an evaluator passed to optimize_anything()."
         )
+    ctx = LogContext.__new__(LogContext)
+    ctx._handle = handle
     return ctx
 
 
-def set_log_context(ctx: LogContext) -> None:
-    _set_log_context(ctx)
+def set_log_context(ctx: "LogContext | None") -> None:
+    tid = threading.get_ident()
+    handle = None if ctx is None else ctx._handle
+    _thread_handles[tid] = handle
+    _rpc_call("set_log_context", {"handle": handle, "client_thread_id": tid})
 
 
 def log(*args: Any, sep: str = " ", end: str = "\n") -> None:
-    ctx = _get_log_context()
-    if ctx is None:
-        warnings.warn(
-            "oa.log() called outside of an evaluator function. "
-            "Output will be discarded. Only call oa.log() inside your evaluator, "
-            "or propagate the log context to child threads via "
-            "oa.get_log_context() / oa.set_log_context().",
-            stacklevel=2,
-        )
+    global _warned_log_outside
+    tid = threading.get_ident()
+    handle = _thread_handles.get(tid)
+    if handle is None:
+        if not _warned_log_outside:
+            _warned_log_outside = True
+            warnings.warn(
+                "oa.log() called outside of an evaluator function. "
+                "Output will be discarded. Only call oa.log() inside your evaluator, "
+                "or propagate the log context to child threads via "
+                "oa.get_log_context() / oa.set_log_context().",
+                stacklevel=2,
+            )
         return
-    text = sep.join(str(a) for a in args) + end
-    ctx.write(text)
-
-
-# ---------------------------------------------------------------------------
-# EvaluatorWrapper
-# ---------------------------------------------------------------------------
-
-_STR_CANDIDATE_KEY = "current_candidate"
+    _rpc_call("log_context.write", {"handle": handle, "text": sep.join(str(a) for a in args) + end, "client_thread_id": tid})
 
 
 class EvaluatorWrapper:
@@ -104,102 +187,52 @@ class EvaluatorWrapper:
         has_var_keyword = any(
             p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
         )
-        if has_var_keyword:
-            accepted_params = None
-        else:
-            accepted_params = set(sig.parameters.keys())
+        accepted_params = None if has_var_keyword else set(sig.parameters.keys())
 
-        def _filter_kwargs(kwargs: dict) -> dict:
+        def _dispatch(candidate, ctx=None):
+            ctx = ctx or {}
+            all_kwargs = {"opt_state": OptimizationState(best_example_evals=(ctx.get("opt_state", {}) or {}).get("best_example_evals", []))}
+            if not single_instance_mode and "example" in ctx:
+                all_kwargs["example"] = ctx["example"]
             if accepted_params is None:
-                return kwargs
-            return {k: v for k, v in kwargs.items() if k in accepted_params}
-
-        def wrapped_evaluator(candidate, example=None, **kwargs):
-            log_ctx = LogContext()
-            _set_log_context(log_ctx)
-
-            if single_instance_mode:
-                all_kwargs = kwargs
+                filtered = all_kwargs
             else:
-                all_kwargs = {"example": example, **kwargs}
+                filtered = {k: v for k, v in all_kwargs.items() if k in accepted_params}
+            return evaluator_fn(candidate, **filtered)
 
-            filtered = _filter_kwargs(all_kwargs)
-
-            eval_candidate = candidate
-            if str_candidate_mode:
-                eval_candidate = candidate[_STR_CANDIDATE_KEY]
-
-            stdout_capturer: "ThreadLocalStreamCapture | None" = None
-            stderr_capturer: "ThreadLocalStreamCapture | None" = None
-            try:
-                if capture_stdio:
-                    stdout_capturer, stderr_capturer = stream_manager.acquire()
-                    stdout_capturer.start_capture()
-                    stderr_capturer.start_capture()
-
-                result = evaluator_fn(eval_candidate, **filtered)
-            except Exception as e:
-                result = e
-            finally:
-                captured_stdout = stdout_capturer.stop_capture() if stdout_capturer else ""
-                captured_stderr = stderr_capturer.stop_capture() if stderr_capturer else ""
-                if capture_stdio and stdout_capturer is not None:
-                    stream_manager.release()
-                log_output = log_ctx.drain()
-                _set_log_context(None)
-
-            if isinstance(result, Exception):
-                if raise_on_exception:
-                    raise result
-                fail_side_info: dict = {"error": str(result)}
-                if log_output:
-                    fail_side_info["log"] = log_output
-                if captured_stdout:
-                    fail_side_info["stdout"] = captured_stdout
-                if captured_stderr:
-                    fail_side_info["stderr"] = captured_stderr
-                return 0.0, None, fail_side_info
-
-            if isinstance(result, tuple):
-                score, side_info = result
-                side_info = dict(side_info) if side_info is not None else {}
-
-                injected: dict = {}
-                if log_output:
-                    injected["log"] = log_output
-                if captured_stdout:
-                    injected["stdout"] = captured_stdout
-                if captured_stderr:
-                    injected["stderr"] = captured_stderr
-
-                for key in list(injected):
-                    if key in side_info:
-                        prefixed = f"_gepa_{key}"
-                        warnings.warn(
-                            f"Your evaluator returned side_info with key '{key}' that conflicts "
-                            f"with GEPA's captured output key. The captured output will be stored "
-                            f"under '{prefixed}' instead.",
-                            stacklevel=2,
-                        )
-                        injected[prefixed] = injected.pop(key)
-
-                side_info.update(injected)
-                return score, None, side_info
-            else:
-                score = result
-                auto_side_info: dict = {}
-                if captured_stdout:
-                    auto_side_info["stdout"] = captured_stdout
-                if captured_stderr:
-                    auto_side_info["stderr"] = captured_stderr
-                if log_output:
-                    auto_side_info["log"] = log_output
-                return score, None, auto_side_info
-
-        self._wrapped = wrapped_evaluator
+        handle = f"py-evaluator-{id(self)}"
+        _register_callback(handle, "__call__", _dispatch)
+        self._handle = _rpc_call(
+            "evaluator_wrapper.create",
+            {
+                "evaluator_handle": handle,
+                "single_instance_mode": single_instance_mode,
+                "capture_stdio": capture_stdio,
+                "str_candidate_mode": str_candidate_mode,
+                "raise_on_exception": raise_on_exception,
+                "client_thread_id": threading.get_ident(),
+            },
+        )
 
     def __call__(self, candidate, example=None, **kwargs):
-        return self._wrapped(candidate, example=example, **kwargs)
+        opt_state = kwargs.get("opt_state")
+        opt_state_payload = None
+        if opt_state is not None:
+            opt_state_payload = {
+                "best_example_evals": getattr(opt_state, "best_example_evals", [])
+            }
+        return tuple(
+            _rpc_call(
+                "evaluator_wrapper.call",
+                {
+                    "handle": self._handle,
+                    "candidate": candidate,
+                    "example": example,
+                    "opt_state": opt_state_payload,
+                    "client_thread_id": threading.get_ident(),
+                },
+            )
+        )
 
 
 # ---------------------------------------------------------------------------
