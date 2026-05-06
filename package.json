@@ -43,8 +43,10 @@
   ],
   "scripts": {
     "build": "tsup",
+    "build:sidecar": "tsup src/sidecar/main.ts --format cjs --out-dir dist/sidecar",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:pytest-shim": "bash tests/run-pytest-shim.sh",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
