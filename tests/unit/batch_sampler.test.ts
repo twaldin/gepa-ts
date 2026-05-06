@@ -37,6 +37,20 @@ describe("EpochShuffledBatchSampler", () => {
     expect(after).not.toEqual(before);
   });
 
+  test("refreshes when trainset size changes", () => {
+    const sampler = new EpochShuffledBatchSampler<number, number>(3, new SeededRandom(13));
+    const state = { total_num_evals: 0, i: 0 };
+    const loader_a = { all_ids: () => [0, 1, 2, 3, 4], fetch: (ids: number[]) => ids, length: 5 };
+    const loader_b = { all_ids: () => [0, 1, 2, 3], fetch: (ids: number[]) => ids, length: 4 };
+
+    sampler.next_minibatch_ids(loader_a, state);
+    const before = [...sampler.shuffled_ids];
+    sampler.next_minibatch_ids(loader_b, state);
+
+    expect(sampler.last_trainset_size).toBe(4);
+    expect(sampler.shuffled_ids).not.toEqual(before);
+  });
+
   test("deterministic with same seed", () => {
     const loader = { all_ids: () => [0, 1, 2, 3, 4], fetch: (ids: number[]) => ids, length: 5 };
     const state = { total_num_evals: 0, i: 0 };
