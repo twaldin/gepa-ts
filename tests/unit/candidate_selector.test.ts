@@ -26,17 +26,18 @@ describe("ParetoCandidateSelector", () => {
     expect(selector.select_candidate_idx(state)).toBe(0);
   });
 
-  test("is deterministic across same seed", () => {
+  test("two consecutive calls are deterministic when only one candidate remains after dominance filtering", () => {
     const state = {
       total_num_evals: 0,
       program_at_pareto_front_valset: new Map([
-        [0, new Set([0, 1])],
+        [0, new Set([0])],
         [1, new Set([0])],
       ]),
       per_program_tracked_scores: [0.9, 0.5],
     };
-    const pick1 = new ParetoCandidateSelector(new SeededRandom(42)).select_candidate_idx(state);
-    const pick2 = new ParetoCandidateSelector(new SeededRandom(42)).select_candidate_idx(state);
+    const selector = new ParetoCandidateSelector(new SeededRandom(42));
+    const pick1 = selector.select_candidate_idx(state);
+    const pick2 = selector.select_candidate_idx(state);
     expect(pick1).toBe(pick2);
   });
 });

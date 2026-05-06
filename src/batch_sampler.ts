@@ -30,34 +30,26 @@ export class EpochShuffledBatchSampler<TDataId extends DataId = DataId, TDataIns
     const base_idx = typed_state.i * this.minibatch_size;
     const curr_epoch = this.epoch === -1 ? 0 : Math.floor(base_idx / Math.max(this.shuffled_ids.length, 1));
 
-    if (curr_epoch !== this.epoch || this.shuffled_ids.length !== all_ids.length) {
+    if (curr_epoch !== this.epoch) {
       this.epoch = curr_epoch;
       this.shuffled_ids = [...all_ids];
       this.rng.shuffle(this.shuffled_ids);
-    }
 
-    const n = this.shuffled_ids.length;
-    const start = n === 0 ? 0 : base_idx % n;
-    const minibatch: TDataId[] = [];
-    for (let j = 0; j < this.minibatch_size && n > 0; j += 1) {
-      minibatch.push(this.shuffled_ids[(start + j) % n]!);
-    }
-
-    if (minibatch.length < this.minibatch_size) {
       const counts = new Map<TDataId, number>();
       for (const id of this.shuffled_ids) {
         counts.set(id, (counts.get(id) ?? 0) + 1);
       }
-      const least_frequent = [...counts.entries()].sort((a, b) => a[1] - b[1])[0]?.[0];
-      if (least_frequent === undefined) {
-        throw new Error("Cannot pad minibatch without available ids.");
+      const least_frequent_id = [...counts.entries()].sort((a, b) => a[1] - b[1])[0]?.[0];
+      if (least_frequent_id === undefined) {
+        throw new Error("Cannot pad shuffled ids without available ids.");
       }
-      // Python parity: Counter.most_common()[::-1][0] picks the least-frequent id in batch_sampler.py.
-      while (minibatch.length < this.minibatch_size) {
-        minibatch.push(least_frequent);
+      // Python parity for batch_sampler.py: Counter.most_common()[::-1][0] selects the least frequent id.
+      while (this.shuffled_ids.length % this.minibatch_size !== 0) {
+        this.shuffled_ids.push(least_frequent_id);
       }
     }
 
-    return minibatch;
+    const start = base_idx % this.shuffled_ids.length;
+    return this.shuffled_ids.slice(start, start + this.minibatch_size);
   }
 }
