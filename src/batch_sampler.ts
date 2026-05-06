@@ -50,6 +50,7 @@ export class EpochShuffledBatchSampler<TDataId extends DataId = DataId, TDataIns
     }
 
     const start = base_idx % this.shuffled_ids.length;
-    return this.shuffled_ids.slice(start, start + this.minibatch_size);
+    const end = start + this.minibatch_size;
+    return this.shuffled_ids.slice(start, end);
   }
 }
