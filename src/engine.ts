@@ -267,6 +267,17 @@ export class GEPAEngine {
     const valset = this.valset;
     if (valset === null) throw new Error('valset must be provided to GEPAEngine.run()');
 
+    notify_callbacks(this.callbacks ?? undefined, 'on_optimization_start', {
+      seed_candidate: this.seed_candidate,
+      trainset_size: this.reflective_proposer.trainset.length,
+      valset_size: valset.length,
+      config: {
+        perfect_score: this.perfect_score,
+        seed: this.seed,
+        track_best_outputs: this.track_best_outputs,
+      },
+    });
+
     const all_ids = valset.all_ids();
     const seed_batch = valset.fetch(all_ids);
     const seed_opt_states: EvaluatorOptState[] = all_ids.map(() => ({ best_example_evals: [] }));
@@ -296,18 +307,6 @@ export class GEPAEngine {
       scores_by_val_id: seed_scores_by_val_id,
       objective_scores_by_val_id: seed_objective_scores_by_val_id,
     });
-    notify_callbacks(this.callbacks ?? undefined, 'on_optimization_start', {
-      seed_candidate: this.seed_candidate,
-      trainset_size: this.reflective_proposer.trainset.length,
-      valset_size: valset.length,
-      config: {
-        perfect_score: this.perfect_score,
-        seed: this.seed,
-        track_best_outputs: this.track_best_outputs,
-      },
-    });
-
-
     const state = initialize_gepa_state({
       run_dir: null,
       logger: this.logger,

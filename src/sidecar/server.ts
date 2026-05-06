@@ -218,6 +218,9 @@ export function create_server(): net.Server {
       const engine_config: GEPAConfig['engine'] = {
         ...(typeof raw_engine.max_metric_calls === 'number' ? { max_metric_calls: raw_engine.max_metric_calls } : {}),
         ...(typeof raw_engine.seed === 'number' ? { seed: raw_engine.seed } : {}),
+        ...(typeof raw_engine.best_example_evals_k === 'number'
+          ? { best_example_evals_k: raw_engine.best_example_evals_k }
+          : {}),
       };
 
       const reflection_config: GEPAConfig['reflection'] = {

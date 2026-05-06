@@ -33,6 +33,7 @@ export interface OptimizeRequestParams {
     engine?: {
       max_metric_calls?: number;
       seed?: number;
+      best_example_evals_k?: number;
     };
     reflection?: {
       reflection_lm_handle?: string;
@@ -92,6 +93,7 @@ function is_engine_shape(v: unknown): boolean {
   const eng = v as Record<string, unknown>;
   if (eng.max_metric_calls !== undefined && typeof eng.max_metric_calls !== 'number') return false;
   if (eng.seed !== undefined && typeof eng.seed !== 'number') return false;
+  if (eng.best_example_evals_k !== undefined && typeof eng.best_example_evals_k !== 'number') return false;
   return true;
 }
 
