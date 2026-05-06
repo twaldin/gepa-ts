@@ -31,6 +31,12 @@ describe("build_reflection_prompt_template", () => {
     expect(prompt).toContain("<side_info>");
   });
 
+  test("null background is treated as absent", () => {
+    const prompt = build_reflection_prompt_template({ objective: "Optimize X", background: null });
+    expect(prompt).not.toContain("## Domain Context & Constraints");
+    expect(prompt).not.toContain("Adheres to all constraints and requirements from the domain context");
+  });
+
   test("section order: goal then background then current component", () => {
     const prompt = build_reflection_prompt_template({ objective: "Optimize X", background: "Use Y" });
     const goal_index = prompt.indexOf("## Optimization Goal");

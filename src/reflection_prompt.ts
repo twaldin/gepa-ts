@@ -25,8 +25,8 @@ export function build_reflection_prompt_template({
   objective,
   background,
 }: {
-  objective?: string;
-  background?: string;
+  objective?: string | null;
+  background?: string | null;
 }): string {
   const sections: string[] = [];
 
@@ -83,10 +83,9 @@ Performance data from evaluating the current component across test cases:
   }
 
   const analysis_section = analysis_points.join("\n");
-  const constraint_line =
-    background !== undefined && background !== ""
-      ? "\n4. Adheres to all constraints and requirements from the domain context"
-      : "";
+  const constraint_line = background
+    ? "\n4. Adheres to all constraints and requirements from the domain context"
+    : "";
 
   sections.push(`
 ## Your Task
