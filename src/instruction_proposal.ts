@@ -110,8 +110,8 @@ function prompt_renderer(input_dict: PromptInput): string {
   const prompt_template = input_dict.prompt_template ?? default_prompt_template;
   validate_prompt_template(prompt_template);
 
-  let prompt = prompt_template.replace("<curr_param>", current_instruction);
-  prompt = prompt.replace("<side_info>", formatted_text);
+  let prompt = prompt_template.replaceAll("<curr_param>", current_instruction);
+  prompt = prompt.replaceAll("<side_info>", formatted_text);
   return prompt;
 }
 

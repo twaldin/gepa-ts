@@ -94,6 +94,18 @@ describe("InstructionProposalSignature.prompt_renderer", () => {
 
     expect(prompt).toContain("## Scores (Higher is Better)");
   });
+
+  test("replaces all placeholder occurrences", () => {
+    const prompt = InstructionProposalSignature.prompt_renderer({
+      current_instruction_doc: "do X",
+      dataset_with_feedback: [{ Inputs: "a" }],
+      prompt_template: "<curr_param> :: <curr_param> :: <side_info> :: <side_info>",
+    });
+
+    expect(prompt).toContain("do X :: do X");
+    expect(prompt).not.toContain("<curr_param>");
+    expect(prompt).not.toContain("<side_info>");
+  });
 });
 
 describe("InstructionProposalSignature.output_extractor", () => {
