@@ -11,7 +11,8 @@ fi
 (cd "$UPSTREAM" && git checkout ce51b50cd196b539c25fae99ad0e0255c23004a4 2>/dev/null || true)
 
 # Build sidecar
-(cd "$ROOT" && npx --no-install tsup src/sidecar/main.ts --format cjs --out-dir dist/sidecar --silent || \
+(cd "$ROOT" && bun run build:sidecar --silent 2>/dev/null || \
+  npx --no-install tsup src/sidecar/main.ts --format cjs --out-dir dist/sidecar --silent || \
   npm exec --offline tsup -- src/sidecar/main.ts --format cjs --out-dir dist/sidecar --silent || \
   npx tsup src/sidecar/main.ts --format cjs --out-dir dist/sidecar --silent)
 
@@ -31,4 +32,8 @@ done
 # Run pytest with shim shadowing real gepa
 PYTHONPATH="$ROOT/tests/pytest-shim:${PYTHONPATH:-}" \
 GEPA_TS_SIDECAR_SOCKET="$SOCK" \
-  pytest "$UPSTREAM/tests/test_optimize_anything_callbacks.py::TestOptimizeAnythingCallbacks::test_no_callbacks_default" -v -s
+  pytest \
+    "$UPSTREAM/tests/test_evaluator_wrapper.py::TestOaLog" \
+    "$UPSTREAM/tests/test_optimize_anything_callbacks.py" \
+    "$UPSTREAM/tests/test_optimize.py" \
+    -v -s

@@ -38,6 +38,7 @@ export interface OptimizeRequestParams {
     reflection?: {
       reflection_lm_handle?: string;
       reflection_minibatch_size?: number;
+      reflection_prompt_template?: string | Record<string, string>;
     };
     tracking?: Record<string, unknown>;
   };
@@ -102,6 +103,10 @@ function is_reflection_shape(v: unknown): boolean {
   const ref = v as Record<string, unknown>;
   if (ref.reflection_lm_handle !== undefined && typeof ref.reflection_lm_handle !== 'string') return false;
   if (ref.reflection_minibatch_size !== undefined && typeof ref.reflection_minibatch_size !== 'number') return false;
+  if (ref.reflection_prompt_template !== undefined) {
+    const rpt = ref.reflection_prompt_template;
+    if (typeof rpt !== 'string' && (typeof rpt !== 'object' || rpt === null)) return false;
+  }
   return true;
 }
 

@@ -228,6 +228,9 @@ export function create_server(): net.Server {
         ...(typeof raw_reflection.reflection_minibatch_size === 'number'
           ? { reflection_minibatch_size: raw_reflection.reflection_minibatch_size }
           : {}),
+        ...(raw_reflection.reflection_prompt_template !== undefined
+          ? { reflection_prompt_template: raw_reflection.reflection_prompt_template as string | Record<string, string> }
+          : {}),
       };
 
       const callback_handles = params.callback_handles ?? [];
