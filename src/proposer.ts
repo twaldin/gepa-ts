@@ -3,6 +3,7 @@ import type {
   Candidate,
   CandidateProposal,
   CandidateSelector,
+  ChatMessage,
   DataId,
   DataLoader,
   EvaluatorOptState,
@@ -18,6 +19,7 @@ import { SINGLE_INSTANCE_BEST_EVALS_KEY } from './state.js';
 import type { GEPAState } from './state.js';
 import { InstructionProposalSignature } from './instruction_proposal.js';
 import { notify_callbacks } from './callbacks.js';
+import { fetch_loader, refresh_loader } from './data_loader.js';
 
 export interface ProposalContext<TDataId extends DataId = DataId> {
   iteration: number;
@@ -103,14 +105,14 @@ export class ReflectiveMutationProposer<TDataId extends DataId = DataId, TDataIn
     candidate: Candidate,
     reflective_dataset: Record<string, Array<Record<string, unknown>>>,
     components_to_update: string[],
-  ): Promise<[Candidate, Record<string, string | Array<Record<string, unknown>>>, Record<string, string>]> {
+  ): Promise<[Candidate, Record<string, string | ChatMessage[]>, Record<string, string>]> {
     if (this.adapter.propose_new_texts != null) {
-      const new_texts = this.adapter.propose_new_texts(candidate, reflective_dataset, components_to_update);
+      const new_texts = await this.adapter.propose_new_texts(candidate, reflective_dataset, components_to_update);
       return [new_texts, {}, {}];
     }
 
     if (this.custom_candidate_proposer != null) {
-      const new_texts = this.custom_candidate_proposer(candidate, reflective_dataset, components_to_update);
+      const new_texts = await this.custom_candidate_proposer(candidate, reflective_dataset, components_to_update);
       return [new_texts, {}, {}];
     }
 
@@ -119,7 +121,7 @@ export class ReflectiveMutationProposer<TDataId extends DataId = DataId, TDataIn
     }
 
     const new_texts: Candidate = {};
-    const prompts: Record<string, string | Array<Record<string, unknown>>> = {};
+    const prompts: Record<string, string | ChatMessage[]> = {};
     const raw_lm_outputs: Record<string, string> = {};
 
     for (const name of components_to_update) {
@@ -143,7 +145,7 @@ export class ReflectiveMutationProposer<TDataId extends DataId = DataId, TDataIn
       }
 
       const { outputs: result, prompt, lm_output: raw_output } = await InstructionProposalSignature.run_with_metadata(
-        this.reflection_lm as (prompt: string) => Promise<string>,
+        this.reflection_lm,
         {
           current_instruction_doc: base_instruction,
           dataset_with_feedback,
@@ -159,9 +161,10 @@ export class ReflectiveMutationProposer<TDataId extends DataId = DataId, TDataIn
     return [new_texts, prompts, raw_lm_outputs];
   }
 
-  prepare_proposal(state: GEPAState): ProposalContext<TDataId> {
+  async prepare_proposal(state: GEPAState): Promise<ProposalContext<TDataId>> {
     const i = state.i + 1;
 
+    await refresh_loader(this.trainset);
     const curr_prog_id = this.candidate_selector.select_candidate_idx(state);
     const curr_prog = state.program_candidates[curr_prog_id] ?? {};
     const curr_prog_score = state.program_full_scores_val_set[curr_prog_id] ?? Number.NEGATIVE_INFINITY;
@@ -175,7 +178,7 @@ export class ReflectiveMutationProposer<TDataId extends DataId = DataId, TDataIn
     });
 
     const subsample_ids = this.batch_sampler.next_minibatch_ids(this.trainset, state) as TDataId[];
-    const minibatch = this.trainset.fetch(subsample_ids) as unknown[];
+    const minibatch = await fetch_loader(this.trainset, subsample_ids) as unknown[];
 
     notify_callbacks(this.callbacks ?? undefined, 'on_minibatch_sampled', {
       iteration: i,
@@ -293,12 +296,12 @@ export class ReflectiveMutationProposer<TDataId extends DataId = DataId, TDataIn
     );
 
     let new_texts: Candidate;
-    let prompts: Record<string, string | Array<Record<string, unknown>>>;
+    let prompts: Record<string, string | ChatMessage[]>;
     let raw_lm_outputs: Record<string, string>;
     const _lm_metadata: Record<string, unknown> = {};
 
     try {
-      const reflective_dataset = this.adapter.make_reflective_dataset(
+      const reflective_dataset = await this.adapter.make_reflective_dataset(
         ctx.curr_prog,
         eval_curr,
         predictor_names_to_update,
@@ -416,7 +419,7 @@ export class ReflectiveMutationProposer<TDataId extends DataId = DataId, TDataIn
   }
 
   async propose_output(state: GEPAState): Promise<ProposalOutput<TDataId>> {
-    const ctx = this.prepare_proposal(state);
+    const ctx = await this.prepare_proposal(state);
     const last_trace = state.full_program_trace[state.full_program_trace.length - 1];
     if (last_trace) {
       last_trace['selected_program_candidate'] = ctx.curr_prog_id;

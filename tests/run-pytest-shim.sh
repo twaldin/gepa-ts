@@ -45,4 +45,5 @@ GEPA_TS_SIDECAR_SOCKET="$SOCK" \
     "$UPSTREAM/tests/test_evaluator_wrapper.py::TestOaLog" \
     "$UPSTREAM/tests/test_best_example_evals.py" \
     "$UPSTREAM/tests/test_optimize.py" \
+    "$ROOT/tests/pytest-shim/test_replay_prompt_bridge.py" \
     -v

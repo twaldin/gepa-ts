@@ -1,4 +1,8 @@
+import type { ChatMessage, LanguageModel } from "./types";
+
 type InputRecord = Record<string, unknown>;
+type Prompt = string | ChatMessage[];
+type ImageContentPart = { type: "image_url"; image_url: { url: string } };
 
 type PromptInput = {
   current_instruction_doc: string;
@@ -36,24 +40,42 @@ function validate_prompt_template(prompt_template: string | null): void {
   }
 }
 
-function is_image_like(value: unknown): boolean {
-  return typeof value === "object" && value !== null && "to_openai_content_part" in value;
+function is_record(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
-function contains_image_like(value: unknown): boolean {
-  if (is_image_like(value)) {
-    return true;
-  }
-  if (Array.isArray(value)) {
-    return value.some((item) => contains_image_like(item));
-  }
-  if (typeof value === "object" && value !== null) {
-    return Object.values(value).some((item) => contains_image_like(item));
-  }
-  return false;
+function has_openai_content_part_method(value: unknown): value is { to_openai_content_part: () => unknown } {
+  return is_record(value) && typeof value["to_openai_content_part"] === "function";
 }
 
-function prompt_renderer(input_dict: PromptInput): string {
+function is_image_content_part(value: unknown): value is ImageContentPart {
+  return (
+    is_record(value) &&
+    value["type"] === "image_url" &&
+    is_record(value["image_url"]) &&
+    typeof value["image_url"]["url"] === "string"
+  );
+}
+
+function image_content_part(value: unknown): ImageContentPart | null {
+  if (has_openai_content_part_method(value)) {
+    const part = value.to_openai_content_part();
+    return is_image_content_part(part) ? part : null;
+  }
+  if (is_record(value) && is_image_content_part(value["__gepa_image"])) {
+    return value["__gepa_image"];
+  }
+  if (is_image_content_part(value)) {
+    return value;
+  }
+  return null;
+}
+
+function literal_replace_all(input: string, search: string, replacement: string): string {
+  return input.split(search).join(replacement);
+}
+
+function prompt_renderer(input_dict: PromptInput): Prompt {
   const current_instruction = input_dict.current_instruction_doc;
   if (typeof current_instruction !== "string") {
     throw new TypeError("current_instruction_doc must be a string");
@@ -64,11 +86,15 @@ function prompt_renderer(input_dict: PromptInput): string {
     throw new TypeError("dataset_with_feedback must be a sequence of records");
   }
 
-  if (contains_image_like(dataset)) {
-    throw new Error("Image content is not supported in v1 prompt_renderer");
-  }
+  const images: ImageContentPart[] = [];
 
   function render_value(value: unknown, level = 3): string {
+    const image_part = image_content_part(value);
+    if (image_part !== null) {
+      images.push(image_part);
+      return `[IMAGE-${images.length} — see visual content]\n\n`;
+    }
+
     if (Array.isArray(value)) {
       let out = "";
       value.forEach((item, i) => {
@@ -81,7 +107,7 @@ function prompt_renderer(input_dict: PromptInput): string {
       return out;
     }
 
-    if (typeof value === "object" && value !== null) {
+    if (is_record(value)) {
       let out = "";
       Object.entries(value).forEach(([key, nested_value]) => {
         out += `${"#".repeat(level)} ${key}\n`;
@@ -105,14 +131,24 @@ function prompt_renderer(input_dict: PromptInput): string {
     return out;
   }
 
-  const formatted_text = dataset.map((sample, i) => convert_sample_to_markdown(sample, i + 1)).join("\n\n");
+  let formatted_text = dataset.map((sample, i) => convert_sample_to_markdown(sample, i + 1)).join("\n\n");
+  if (images.length > 0) {
+    formatted_text =
+      `The evaluation data below includes visual content (${images.length} image(s)). ` +
+      "Analyze both the text and images when suggesting improvements.\n\n" +
+      formatted_text;
+  }
 
   const prompt_template = input_dict.prompt_template ?? default_prompt_template;
   validate_prompt_template(prompt_template);
 
-  let prompt = prompt_template.replaceAll("<curr_param>", current_instruction);
-  prompt = prompt.replaceAll("<side_info>", formatted_text);
-  return prompt;
+  let prompt = literal_replace_all(prompt_template, "<curr_param>", current_instruction);
+  prompt = literal_replace_all(prompt, "<side_info>", formatted_text);
+  if (images.length === 0) {
+    return prompt;
+  }
+
+  return [{ role: "user", content: [{ type: "text", text: prompt }, ...images] }];
 }
 
 function output_extractor(lm_out: string): { new_instruction: string } {
@@ -141,16 +177,16 @@ function output_extractor(lm_out: string): { new_instruction: string } {
   return { new_instruction: content.trim() };
 }
 
-async function run(lm: (prompt: string) => Promise<string>, input_dict: PromptInput): Promise<{ new_instruction: string }> {
+async function run(lm: LanguageModel, input_dict: PromptInput): Promise<{ new_instruction: string }> {
   const prompt = prompt_renderer(input_dict);
   const lm_out = await lm(prompt);
   return output_extractor(lm_out);
 }
 
 async function run_with_metadata(
-  lm: (prompt: string) => Promise<string>,
+  lm: LanguageModel,
   input_dict: PromptInput,
-): Promise<{ outputs: { new_instruction: string }; prompt: string; lm_output: string }> {
+): Promise<{ outputs: { new_instruction: string }; prompt: Prompt; lm_output: string }> {
   const prompt = prompt_renderer(input_dict);
   const lm_output = await lm(prompt);
   return {

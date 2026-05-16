@@ -4,9 +4,14 @@ import {
   find_dominator_programs,
   idxmax,
   is_dominated,
+  json_default,
   remove_dominated_programs,
   select_program_candidate_from_pareto_front,
 } from "../../src/utils";
+import {
+  idxmax as public_idxmax,
+  select_program_candidate_from_pareto_front as public_select_program_candidate_from_pareto_front,
+} from "../../src/index.js";
 
 describe("idxmax", () => {
   test("returns index of max", () => {
@@ -15,6 +20,31 @@ describe("idxmax", () => {
 
   test("returns first match on ties", () => {
     expect(idxmax([0.5, 0.5])).toBe(0);
+  });
+});
+
+describe("json_default", () => {
+  test("converts mapping-like and set-like values to JSON-friendly shapes", () => {
+    expect(json_default(new Map([["a", 1]]))).toEqual({ a: 1 });
+    expect(json_default(new Set([1, 2]))).toEqual([1, 2]);
+    expect(json_default({ a: 1 })).toEqual({ a: 1 });
+  });
+
+  test("falls back to string rendering for primitives", () => {
+    expect(json_default(42)).toBe("42");
+    expect(json_default(null)).toBe("null");
+  });
+});
+
+describe("public utility exports", () => {
+  test("exports gepa_utils-compatible helpers from the package entrypoint", () => {
+    const fronts = {
+      a: new Set([0, 1]),
+      b: new Set([0]),
+    };
+
+    expect(public_idxmax([0.1, 0.9, 0.3])).toBe(1);
+    expect(public_select_program_candidate_from_pareto_front(fronts, [1, 0], new SeededRandom(1))).toBe(0);
   });
 });
 
@@ -91,10 +121,18 @@ describe("select_program_candidate_from_pareto_front", () => {
 });
 
 describe("SeededRandom", () => {
-  test("random() deterministic for same seed", () => {
-    const a = new SeededRandom(0);
-    const b = new SeededRandom(0);
-    expect(a.random()).toBe(b.random());
+  test("random() matches Python random.Random for integer seeds", () => {
+    const rng = new SeededRandom(0);
+    expect([rng.random(), rng.random(), rng.random()]).toEqual([
+      0.8444218515250481,
+      0.7579544029403025,
+      0.420571580830845,
+    ]);
+  });
+
+  test("randint matches Python random.Random inclusive bounds", () => {
+    const rng = new SeededRandom(0);
+    expect([rng.randint(0, 19), rng.randint(0, 19), rng.randint(0, 19)]).toEqual([12, 13, 1]);
   });
 
   test("randint inclusive bounds", () => {
@@ -105,10 +143,21 @@ describe("SeededRandom", () => {
     }
   });
 
-  test("shuffle preserves members", () => {
-    const rng = new SeededRandom(2);
-    const arr = [1, 2, 3, 4, 5];
+  test("shuffle matches Python random.Random", () => {
+    const rng = new SeededRandom(0);
+    const arr = Array.from({ length: 20 }, (_, i) => i);
     rng.shuffle(arr);
-    expect([...arr].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5]);
+    expect(arr).toEqual([10, 18, 16, 14, 0, 17, 11, 2, 3, 9, 5, 7, 4, 19, 6, 15, 8, 1, 13, 12]);
+  });
+
+  test("sample matches Python random.Random pool path", () => {
+    const rng = new SeededRandom(0);
+    expect(rng.sample(Array.from({ length: 10 }, (_, i) => i), 2)).toEqual([6, 9]);
+    expect(rng.sample(Array.from({ length: 10 }, (_, i) => i), 5)).toEqual([0, 4, 7, 3, 2]);
+  });
+
+  test("sample matches Python random.Random selected-set path", () => {
+    const rng = new SeededRandom(0);
+    expect(rng.sample(Array.from({ length: 100 }, (_, i) => i), 3)).toEqual([49, 97, 53]);
   });
 });
