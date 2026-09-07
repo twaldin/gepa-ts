@@ -1,37 +1,49 @@
 # @twaldin/gepa-ts
 
-A 1-1 TypeScript port of [gepa](https://github.com/gepa-ai/gepa) — Genetic-Pareto reflective text evolution for prompt and program optimization.
+A TypeScript port of [gepa](https://github.com/gepa-ai/gepa) — Genetic-Pareto reflective text evolution for prompt and program optimization.
 
-**v0.1.0** — first published release. Upstream pin: `ce51b50cd196b539c25fae99ad0e0255c23004a4`.
+**Package version: v0.1.0.** Upstream pin: `ce51b50cd196b539c25fae99ad0e0255c23004a4`.
 
 ## Design constraints
 
-- **1-1 with Python**: snake_case API, behavior-equivalent. The acceptance gate is the upstream pytest suite running unmodified against this implementation via a Python sidecar shim.
-- **Bring your own LLM**: zero SDK dependencies. The reflection LM is a single function: `(prompt: string) => Promise<string>`. Wrap whatever you use (Anthropic, OpenAI, OpenRouter, local).
+- **Python parity target**: intentional snake_case API and upstream behavior as the spec. The acceptance gate runs selected, unmodified upstream pytests via a Python sidecar shim; it does not cover the entire upstream suite.
+- **Bring your own LLM**: zero SDK dependencies. The reflection LM has type `(prompt: string | ChatMessage[]) => Promise<string>`; the current reflection path sends string prompts. Wrap whatever you use (Anthropic, OpenAI, OpenRouter, local).
 - **Zero runtime deps**: no transitive supply-chain footprint.
-- **Cross-runtime**: Node ≥20, Bun ≥1, Deno. Dual ESM + CJS exports.
+- **Runtimes**: Node ≥20, Bun ≥1. Dual ESM + CJS exports. The current local build does not run directly under Deno: its emitted ESM imports bare `async_hooks`, which Deno rejects without Node-compatible resolution.
 
 ## v0.1 scope
 
-`optimize_anything` and its full transitive closure: genetic loop, reflective mutation, candidate evaluation, Pareto frontier maintenance, BYO `evaluator` and `make_reflective_dataset`, structured logging via `oa_log` / `LogContext` / `getLogContext` / `setLogContext` (AsyncLocalStorage-backed), and `EvaluatorWrapper` with `capture_stdio`.
+`optimize_anything` with a BYO `evaluator`: genetic loop, reflective mutation, candidate evaluation, per-instance Pareto frontier maintenance, structured logging via `oa_log` / `LogContext` / `getLogContext` / `setLogContext` (AsyncLocalStorage-backed), and `EvaluatorWrapper` with `capture_stdio`. The exported engine and adapter building blocks expose `GEPAAdapter.evaluate` and `make_reflective_dataset` for lower-level integrations.
 
 Excluded from v0.1: checkpointing, evaluation cache, multimodal, refiner, reflection cost tracking, seedless mode.
 
-## Install
+## Build and install from source
+
+The public npm registry currently returns 404 for `@twaldin/gepa-ts`; use a local build rather than `npm install @twaldin/gepa-ts`.
 
 ```bash
-npm install @twaldin/gepa-ts
-# or: bun add @twaldin/gepa-ts
+git clone --branch main https://github.com/twaldin/gepa-ts.git
+cd gepa-ts
+bun install --frozen-lockfile
+bun run build
+```
+
+Then, from your consuming project:
+
+```bash
+npm install /absolute/path/to/gepa-ts
 ```
 
 ## Quick start
+
+This offline wiring example uses a fixed reflection response, not a provider call. Both candidates score equally, so the default strict-improvement rule keeps the seed.
 
 ```ts
 import { optimize_anything } from '@twaldin/gepa-ts';
 
 const result = await optimize_anything({
   seed_candidate: 'Answer the question concisely.',
-  evaluator: (candidate, ctx) => {
+  evaluator: (candidate) => {
     const prompt = String(candidate);
     const score = prompt.length < 100 ? 1.0 : 0.0;
     return [score, { len: prompt.length }];
@@ -40,7 +52,7 @@ const result = await optimize_anything({
     engine: { max_metric_calls: 20 },
     reflection: {
       reflection_lm: async (prompt) => {
-        // call your LLM here
+        // Replace this fixed response with your LLM call.
         return 'Improved answer.';
       },
     },
@@ -56,9 +68,9 @@ Each release must pass:
 
 - `bun run typecheck` (strict TS)
 - `bun run test` (vitest, full TS suite)
-- `bash tests/run-pytest-shim.sh` — upstream gepa pytests run unmodified against this implementation via a unix-socket sidecar bridge
+- `bash tests/run-pytest-shim.sh` — selected upstream gepa pytests via a unix-socket sidecar bridge: `test_optimize_anything_callbacks.py`, `test_evaluator_wrapper.py::TestOaLog`, `test_best_example_evals.py`, and `test_optimize.py`. This is a subset, not a full-suite parity claim.
 
-Tamper-validated: no-op'ing core TS functions (e.g. `LogContext.write`) causes upstream pytests to fail, proving the bridge truly cross-validates the TypeScript port.
+Tamper validation of sidecar-backed calls (for example, making `LogContext.write` a no-op) checks that those paths exercise TS. The shim also performs Python-side validation and compatibility work; passing its selected tests does not establish full upstream parity.
 
 ## License
 

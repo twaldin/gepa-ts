@@ -4,7 +4,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "description": "1-1 TypeScript port of gepa.optimize_anything (Genetic-Pareto reflective text evolution). Zero runtime deps, BYO LLM adapter, dual ESM/CJS, Node + Bun + Deno.",
+  "description": "1-1 TypeScript port of gepa.optimize_anything (Genetic-Pareto reflective text evolution). Zero runtime deps, BYO LLM adapter, dual ESM/CJS, Node + Bun.",
   "license": "MIT",
   "author": "Tim Waldin",
   "homepage": "https://github.com/twaldin/gepa-ts",
