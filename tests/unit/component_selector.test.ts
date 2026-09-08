@@ -19,6 +19,19 @@ describe("RoundRobinReflectionComponentSelector", () => {
     expect(selector(state, [], [], 0, candidate)).toEqual(["name_a"]);
     expect(state.named_predictor_id_to_update_next_for_program_candidate[0]).toBe(1);
   });
+
+  test("uses upstream state predictor order instead of candidate key order when available", () => {
+    const selector = new RoundRobinReflectionComponentSelector();
+    const state = {
+      total_num_evals: 0,
+      named_predictor_id_to_update_next_for_program_candidate: [0],
+      list_of_named_predictors: ["second", "first"],
+    };
+    const candidate = { first: "a", second: "b" };
+
+    expect(selector(state, [], [], 0, candidate)).toEqual(["second"]);
+    expect(selector(state, [], [], 0, candidate)).toEqual(["first"]);
+  });
 });
 
 describe("AllReflectionComponentSelector", () => {

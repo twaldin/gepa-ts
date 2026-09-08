@@ -24,6 +24,206 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js",
+      "require": "./dist/core/index.cjs"
+    },
+    "./core/*": {
+      "types": "./dist/core/*.d.ts",
+      "import": "./dist/core/*.js",
+      "require": "./dist/core/*.cjs"
+    },
+    "./proposer": {
+      "types": "./dist/proposer/index.d.ts",
+      "import": "./dist/proposer/index.js",
+      "require": "./dist/proposer/index.cjs"
+    },
+    "./proposer/*": {
+      "types": "./dist/proposer/*.d.ts",
+      "import": "./dist/proposer/*.js",
+      "require": "./dist/proposer/*.cjs"
+    },
+    "./proposer/merge": {
+      "types": "./dist/proposer/merge.d.ts",
+      "import": "./dist/proposer/merge.js",
+      "require": "./dist/proposer/merge.cjs"
+    },
+    "./proposer/reflective_mutation": {
+      "types": "./dist/proposer/reflective_mutation/index.d.ts",
+      "import": "./dist/proposer/reflective_mutation/index.js",
+      "require": "./dist/proposer/reflective_mutation/index.cjs"
+    },
+    "./proposer/reflective_mutation/*": {
+      "types": "./dist/proposer/reflective_mutation/*.d.ts",
+      "import": "./dist/proposer/reflective_mutation/*.js",
+      "require": "./dist/proposer/reflective_mutation/*.cjs"
+    },
+    "./strategies": {
+      "types": "./dist/strategies/index.d.ts",
+      "import": "./dist/strategies/index.js",
+      "require": "./dist/strategies/index.cjs"
+    },
+    "./strategies/*": {
+      "types": "./dist/strategies/*.d.ts",
+      "import": "./dist/strategies/*.js",
+      "require": "./dist/strategies/*.cjs"
+    },
+    "./utils": {
+      "types": "./dist/utils/index.d.ts",
+      "import": "./dist/utils/index.js",
+      "require": "./dist/utils/index.cjs"
+    },
+    "./utils/*": {
+      "types": "./dist/utils/*.d.ts",
+      "import": "./dist/utils/*.js",
+      "require": "./dist/utils/*.cjs"
+    },
+    "./utils/code_execution": {
+      "types": "./dist/utils/code_execution.d.ts",
+      "import": "./dist/utils/code_execution.js",
+      "require": "./dist/utils/code_execution.cjs"
+    },
+    "./utils/stdio_capture": {
+      "types": "./dist/utils/stdio_capture.d.ts",
+      "import": "./dist/utils/stdio_capture.js",
+      "require": "./dist/utils/stdio_capture.cjs"
+    },
+    "./gepa_utils": {
+      "types": "./dist/gepa_utils.d.ts",
+      "import": "./dist/gepa_utils.js",
+      "require": "./dist/gepa_utils.cjs"
+    },
+    "./lm": {
+      "types": "./dist/lm.d.ts",
+      "import": "./dist/lm.js",
+      "require": "./dist/lm.cjs"
+    },
+    "./image": {
+      "types": "./dist/image.d.ts",
+      "import": "./dist/image.js",
+      "require": "./dist/image.cjs"
+    },
+    "./visualization": {
+      "types": "./dist/visualization.d.ts",
+      "import": "./dist/visualization.js",
+      "require": "./dist/visualization.cjs"
+    },
+    "./logging": {
+      "types": "./dist/logging/index.d.ts",
+      "import": "./dist/logging/index.js",
+      "require": "./dist/logging/index.cjs"
+    },
+    "./logging/*": {
+      "types": "./dist/logging/*.d.ts",
+      "import": "./dist/logging/*.js",
+      "require": "./dist/logging/*.cjs"
+    },
+    "./adapters": {
+      "types": "./dist/adapters/index.d.ts",
+      "import": "./dist/adapters/index.js",
+      "require": "./dist/adapters/index.cjs"
+    },
+    "./adapters/optimize_anything_adapter": {
+      "types": "./dist/adapters/optimize_anything_adapter/index.d.ts",
+      "import": "./dist/adapters/optimize_anything_adapter/index.js",
+      "require": "./dist/adapters/optimize_anything_adapter/index.cjs"
+    },
+    "./adapters/optimize_anything_adapter/*": {
+      "types": "./dist/adapters/optimize_anything_adapter/*.d.ts",
+      "import": "./dist/adapters/optimize_anything_adapter/*.js",
+      "require": "./dist/adapters/optimize_anything_adapter/*.cjs"
+    },
+    "./adapters/default_adapter": {
+      "types": "./dist/adapters/default_adapter/index.d.ts",
+      "import": "./dist/adapters/default_adapter/index.js",
+      "require": "./dist/adapters/default_adapter/index.cjs"
+    },
+    "./adapters/default_adapter/*": {
+      "types": "./dist/adapters/default_adapter/*.d.ts",
+      "import": "./dist/adapters/default_adapter/*.js",
+      "require": "./dist/adapters/default_adapter/*.cjs"
+    },
+    "./adapters/generic_rag_adapter": {
+      "types": "./dist/adapters/generic_rag_adapter/index.d.ts",
+      "import": "./dist/adapters/generic_rag_adapter/index.js",
+      "require": "./dist/adapters/generic_rag_adapter/index.cjs"
+    },
+    "./adapters/generic_rag_adapter/*": {
+      "types": "./dist/adapters/generic_rag_adapter/*.d.ts",
+      "import": "./dist/adapters/generic_rag_adapter/*.js",
+      "require": "./dist/adapters/generic_rag_adapter/*.cjs"
+    },
+    "./adapters/generic_rag_adapter/vector_stores": {
+      "types": "./dist/adapters/generic_rag_adapter/vector_stores/index.d.ts",
+      "import": "./dist/adapters/generic_rag_adapter/vector_stores/index.js",
+      "require": "./dist/adapters/generic_rag_adapter/vector_stores/index.cjs"
+    },
+    "./adapters/generic_rag_adapter/vector_stores/*": {
+      "types": "./dist/adapters/generic_rag_adapter/vector_stores/*.d.ts",
+      "import": "./dist/adapters/generic_rag_adapter/vector_stores/*.js",
+      "require": "./dist/adapters/generic_rag_adapter/vector_stores/*.cjs"
+    },
+    "./adapters/confidence_adapter": {
+      "types": "./dist/adapters/confidence_adapter/index.d.ts",
+      "import": "./dist/adapters/confidence_adapter/index.js",
+      "require": "./dist/adapters/confidence_adapter/index.cjs"
+    },
+    "./adapters/confidence_adapter/*": {
+      "types": "./dist/adapters/confidence_adapter/*.d.ts",
+      "import": "./dist/adapters/confidence_adapter/*.js",
+      "require": "./dist/adapters/confidence_adapter/*.cjs"
+    },
+    "./adapters/anymaths_adapter": {
+      "types": "./dist/adapters/anymaths_adapter/index.d.ts",
+      "import": "./dist/adapters/anymaths_adapter/index.js",
+      "require": "./dist/adapters/anymaths_adapter/index.cjs"
+    },
+    "./adapters/anymaths_adapter/*": {
+      "types": "./dist/adapters/anymaths_adapter/*.d.ts",
+      "import": "./dist/adapters/anymaths_adapter/*.js",
+      "require": "./dist/adapters/anymaths_adapter/*.cjs"
+    },
+    "./adapters/terminal_bench_adapter": {
+      "types": "./dist/adapters/terminal_bench_adapter/index.d.ts",
+      "import": "./dist/adapters/terminal_bench_adapter/index.js",
+      "require": "./dist/adapters/terminal_bench_adapter/index.cjs"
+    },
+    "./adapters/terminal_bench_adapter/*": {
+      "types": "./dist/adapters/terminal_bench_adapter/*.d.ts",
+      "import": "./dist/adapters/terminal_bench_adapter/*.js",
+      "require": "./dist/adapters/terminal_bench_adapter/*.cjs"
+    },
+    "./adapters/mcp_adapter": {
+      "types": "./dist/adapters/mcp_adapter/index.d.ts",
+      "import": "./dist/adapters/mcp_adapter/index.js",
+      "require": "./dist/adapters/mcp_adapter/index.cjs"
+    },
+    "./adapters/mcp_adapter/*": {
+      "types": "./dist/adapters/mcp_adapter/*.d.ts",
+      "import": "./dist/adapters/mcp_adapter/*.js",
+      "require": "./dist/adapters/mcp_adapter/*.cjs"
+    },
+    "./adapters/dspy_adapter": {
+      "types": "./dist/adapters/dspy_adapter/index.d.ts",
+      "import": "./dist/adapters/dspy_adapter/index.js",
+      "require": "./dist/adapters/dspy_adapter/index.cjs"
+    },
+    "./adapters/dspy_adapter/*": {
+      "types": "./dist/adapters/dspy_adapter/*.d.ts",
+      "import": "./dist/adapters/dspy_adapter/*.js",
+      "require": "./dist/adapters/dspy_adapter/*.cjs"
+    },
+    "./adapters/dspy_full_program_adapter": {
+      "types": "./dist/adapters/dspy_full_program_adapter/index.d.ts",
+      "import": "./dist/adapters/dspy_full_program_adapter/index.js",
+      "require": "./dist/adapters/dspy_full_program_adapter/index.cjs"
+    },
+    "./adapters/dspy_full_program_adapter/*": {
+      "types": "./dist/adapters/dspy_full_program_adapter/*.d.ts",
+      "import": "./dist/adapters/dspy_full_program_adapter/*.js",
+      "require": "./dist/adapters/dspy_full_program_adapter/*.cjs"
     }
   },
   "files": [

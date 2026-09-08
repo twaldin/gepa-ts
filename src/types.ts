@@ -37,7 +37,7 @@ export type ProposalFn = (
   candidate: Candidate,
   reflective_dataset: Record<string, Array<Record<string, unknown>>>,
   components_to_update: string[],
-) => Candidate;
+) => Candidate | Promise<Candidate>;
 
 export interface GEPAAdapter<TDataInst = DataInst, TTrajectory = Trajectory, TRolloutOutput = RolloutOutput> {
   evaluate(
@@ -50,13 +50,15 @@ export interface GEPAAdapter<TDataInst = DataInst, TTrajectory = Trajectory, TRo
     candidate: Candidate,
     eval_batch: EvaluationBatch<TTrajectory, TRolloutOutput>,
     components_to_update: string[],
-  ): Record<string, Array<Record<string, unknown>>>;
+  ): Record<string, Array<Record<string, unknown>>> | Promise<Record<string, Array<Record<string, unknown>>>>;
   propose_new_texts?: ProposalFn | null;
 }
 
 export interface DataLoader<TDataId extends DataId = DataId, TDataInst = DataInst> {
   all_ids(): TDataId[];
   fetch(ids: TDataId[]): TDataInst[];
+  fetch_async?(ids: TDataId[]): Promise<TDataInst[]>;
+  refresh?(): Promise<void>;
   readonly length: number;
 }
 
@@ -81,6 +83,7 @@ export interface CandidateProposal<TDataId extends DataId = DataId> {
 
 export interface GEPAStateLike {
   total_num_evals: number;
+  i?: number;
 }
 
 export type Stopper = (state: GEPAStateLike) => boolean;
@@ -114,16 +117,16 @@ export interface AcceptanceCriterion {
 }
 
 export interface EvaluationPolicy<TDataId extends DataId = DataId, TDataInst = DataInst> {
-  get_eval_batch(loader: DataLoader<TDataId, TDataInst>, state: GEPAStateLike, target_program_idx?: ProgramIdx): TDataId[];
-  get_best_program(state: GEPAStateLike): ProgramIdx;
-  get_valset_score(program_idx: ProgramIdx, state: GEPAStateLike): number;
+  get_eval_batch(loader: DataLoader<TDataId, TDataInst>, state: GEPAStateLike, target_program_idx?: ProgramIdx): TDataId[] | Promise<TDataId[]>;
+  get_best_program(state: GEPAStateLike): ProgramIdx | Promise<ProgramIdx>;
+  get_valset_score(program_idx: ProgramIdx, state: GEPAStateLike): number | Promise<number>;
 }
 
 export interface BatchSampler<TDataId extends DataId = DataId, TDataInst = DataInst> {
   next_minibatch_ids(loader: DataLoader<TDataId, TDataInst>, state: GEPAStateLike): TDataId[];
 }
 
-export type FrontierType = "instance";
+export type FrontierType = "instance" | "objective" | "hybrid" | "cartesian";
 
 export interface EngineConfig {
   run_dir?: string;
@@ -172,6 +175,7 @@ export interface RefinerConfig {
 
 export interface TrackingConfig {
   logger?: LoggerProtocol;
+  experiment_tracker?: ExperimentTrackerProtocol;
   use_wandb?: boolean;
   wandb_api_key?: string;
   wandb_init_kwargs?: Record<string, unknown>;
@@ -182,6 +186,13 @@ export interface TrackingConfig {
   mlflow_experiment_name?: string;
   mlflow_attach_existing?: boolean;
   key_prefix?: string;
+}
+
+export interface ExperimentTrackerProtocol {
+  log_config(config: Record<string, unknown>): void;
+  log_metrics(metrics: Record<string, unknown>, step?: number): void;
+  log_table(key: string, columns: string[], data: unknown[][]): void;
+  log_summary(summary: Record<string, unknown>): void;
 }
 
 export interface GEPAConfig {
@@ -275,7 +286,7 @@ export interface ProposalStartEvent {
 export interface ProposalEndEvent {
   iteration: number;
   new_instructions: Candidate;
-  prompts: Record<string, string | Array<Record<string, unknown>>>;
+  prompts: Record<string, string | ChatMessage[]>;
   raw_lm_outputs: Record<string, string>;
 }
 export interface CandidateAcceptedEvent {

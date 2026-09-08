@@ -26,6 +26,8 @@ async function run_via_server(params: unknown): Promise<{
   await new Promise<void>((resolve) => server.listen(socket_path, resolve));
 
   const invokes: CapturedInvoke[] = [];
+  let train_fetch_count = 0;
+  let val_fetch_count = 0;
 
   const result = await new Promise<Record<string, unknown>>((resolve, reject) => {
     const socket = net.createConnection(socket_path);
@@ -48,9 +50,70 @@ async function run_via_server(params: unknown): Promise<{
         // Evaluator __call__ → score; LM __call__ → a valid candidate string; callback methods → null
         let result_value: unknown = null;
         if (p.method === '__call__' && p.handle === 'eval-1') {
-          result_value = 0.5;
+          const candidate = p.args[0];
+          if (typeof candidate === 'object' && candidate !== null && 'number' in candidate) {
+            const candidate_record = candidate as Record<string, unknown>;
+            result_value = candidate_record['number'] === '42' ? [1, { scores: { accuracy: 1 } }] : [0, { scores: { accuracy: 0 } }];
+          } else {
+            result_value = 0.5;
+          }
         } else if (p.method === '__call__' && p.handle === 'lm-1') {
-          result_value = '```\ninitial prompt\n```';
+          result_value = '```\nimproved prompt\n```';
+        } else if (p.method === '__call__' && p.handle === 'refiner-lm-1') {
+          result_value = '```json\n{"number":"42"}\n```';
+        } else if (p.handle === 'adapter-1' && p.method === 'evaluate') {
+          const batch = Array.isArray(p.args[0]) ? p.args[0] : [];
+          const candidate = p.args[1];
+          const capture_traces = p.args[2] === true;
+          const prompt = typeof candidate === 'object' && candidate !== null
+            ? (candidate as Record<string, unknown>)['system_prompt']
+            : null;
+          const score = prompt === 'improved prompt' ? 1 : 0;
+          result_value = {
+            outputs: batch.map(() => ({ answer: score === 1 ? 'ok' : 'bad' })),
+            scores: batch.map(() => score),
+            ...(capture_traces
+              ? { trajectories: batch.map((item) => ({ item, feedback: score === 1 ? 'correct' : 'needs improvement' })) }
+              : {}),
+            objective_scores: batch.map(() => ({ exact: score })),
+            num_metric_calls: batch.length,
+          };
+        } else if (p.handle === 'adapter-1' && p.method === 'make_reflective_dataset') {
+          result_value = {
+            system_prompt: [
+              {
+                Inputs: 'question',
+                'Generated Outputs': 'bad',
+                Feedback: 'needs improvement',
+              },
+            ],
+          };
+        } else if (p.handle === 'adapter-1' && p.method === 'propose_new_texts') {
+          result_value = { system_prompt: 'improved prompt' };
+        } else if (p.handle === 'val-policy-1' && p.method === 'get_eval_batch') {
+          const state = p.args[1] as Record<string, unknown>;
+          const evaluated = state['valset_evaluations'] as Record<string, unknown> | undefined;
+          result_value = evaluated !== undefined && Object.prototype.hasOwnProperty.call(evaluated, '0') ? [1] : [0];
+        } else if (p.handle === 'val-policy-1' && p.method === 'get_best_program') {
+          result_value = 0;
+        } else if (p.handle === 'val-policy-1' && p.method === 'get_valset_score') {
+          const state = p.args[1] as Record<string, unknown>;
+          const program_idx = typeof p.args[0] === 'number' ? p.args[0] : 0;
+          const val_scores = state['prog_candidate_val_subscores'] as Array<Record<string, number>> | undefined;
+          const scores = val_scores?.[program_idx] ?? {};
+          const values = Object.values(scores);
+          result_value = values.length === 0 ? Number.NEGATIVE_INFINITY : values.reduce((acc, score) => acc + score, 0) / values.length;
+        } else if ((p.handle === 'train-loader-1' || p.handle === 'val-loader-1') && p.method === 'all_ids') {
+          const fetch_count = p.handle === 'train-loader-1' ? train_fetch_count : val_fetch_count;
+          result_value = fetch_count > 0 ? [0, 1, 2] : [0, 1];
+        } else if ((p.handle === 'train-loader-1' || p.handle === 'val-loader-1') && p.method === 'fetch') {
+          const ids = Array.isArray(p.args[0]) ? p.args[0] : [];
+          if (p.handle === 'train-loader-1') {
+            train_fetch_count += 1;
+          } else {
+            val_fetch_count += 1;
+          }
+          result_value = ids.map((id) => ({ id, source: p.handle }));
         }
         socket.write(JSON.stringify({ jsonrpc: '2.0', id: msg['id'], result: result_value }) + '\n');
         return;
@@ -115,6 +178,8 @@ describe('create_server — callback_handles protocol', () => {
 
     // parents must be present
     expect(Array.isArray(result['parents'])).toBe(true);
+    expect(result['validation_schema_version']).toBe(2);
+    expect(result['best_idx']).toBeTypeOf('number');
   }, TEST_TIMEOUT);
 
   it('evaluator __call__ uses method field on callback_invoke', async () => {
@@ -134,5 +199,120 @@ describe('create_server — callback_handles protocol', () => {
     for (const inv of eval_invokes) {
       expect(inv.method).toBe('__call__');
     }
+  }, TEST_TIMEOUT);
+
+  it('routes refiner_lm_handle through callback_invoke separately from reflection_lm_handle', async () => {
+    const { invokes, result } = await run_via_server({
+      seed_candidate: { number: '10', refiner_prompt: 'Improve the number.' },
+      dataset: null,
+      valset: null,
+      objective: null,
+      background: null,
+      config: {
+        engine: { max_metric_calls: 1 },
+        refiner: { refiner_lm_handle: 'refiner-lm-1', max_refinements: 1 },
+      },
+      evaluator_handle: 'eval-1',
+      reflection_lm_handle: 'lm-1',
+    });
+
+    expect(invokes.some((inv) => inv.handle === 'refiner-lm-1' && inv.method === '__call__')).toBe(true);
+    expect(result['total_metric_calls']).toBe(2);
+    expect(result['val_aggregate_scores']).toEqual([1]);
+  }, TEST_TIMEOUT);
+
+  it('uses adapter_handle as the optimization adapter without an evaluator_handle', async () => {
+    const { invokes, result } = await run_via_server({
+      seed_candidate: { system_prompt: 'seed prompt' },
+      dataset: [{ input: 'train-1' }, { input: 'train-2' }],
+      valset: [{ input: 'val-1' }, { input: 'val-2' }],
+      objective: null,
+      background: null,
+      config: {
+        engine: { max_metric_calls: 8 },
+        reflection: { reflection_minibatch_size: 2 },
+      },
+      adapter_handle: 'adapter-1',
+      reflection_lm_handle: 'lm-1',
+    });
+
+    expect(invokes.some((inv) => inv.handle === 'adapter-1' && inv.method === 'evaluate')).toBe(true);
+    expect(invokes.some((inv) => inv.handle === 'adapter-1' && inv.method === 'make_reflective_dataset')).toBe(true);
+    expect(invokes.some((inv) => inv.handle === 'eval-1')).toBe(false);
+    expect(result['best_candidate']).toEqual({ system_prompt: 'improved prompt' });
+    expect(result['val_aggregate_scores']).toEqual([0, 1]);
+  }, TEST_TIMEOUT);
+
+  it('uses remote adapter propose_new_texts without calling the reflection LM', async () => {
+    const { invokes, result } = await run_via_server({
+      seed_candidate: { system_prompt: 'seed prompt' },
+      dataset: [{ input: 'train-1' }, { input: 'train-2' }],
+      valset: [{ input: 'val-1' }, { input: 'val-2' }],
+      objective: null,
+      background: null,
+      config: {
+        engine: { max_metric_calls: 8 },
+        reflection: { reflection_minibatch_size: 2 },
+      },
+      adapter_handle: 'adapter-1',
+      adapter_propose_new_texts: true,
+      reflection_lm_handle: 'lm-1',
+    });
+
+    expect(invokes.some((inv) => inv.handle === 'adapter-1' && inv.method === 'propose_new_texts')).toBe(true);
+    expect(invokes.some((inv) => inv.handle === 'lm-1')).toBe(false);
+    expect(result['best_candidate']).toEqual({ system_prompt: 'improved prompt' });
+  }, TEST_TIMEOUT);
+
+  it('uses remote loader handles with refreshed ids after fetch side effects', async () => {
+    const { invokes, result } = await run_via_server({
+      seed_candidate: { system_prompt: 'seed prompt' },
+      dataset: null,
+      valset: null,
+      dataset_loader_handle: 'train-loader-1',
+      valset_loader_handle: 'val-loader-1',
+      objective: null,
+      background: null,
+      config: {
+        engine: { max_metric_calls: 10 },
+        reflection: { reflection_minibatch_size: 2 },
+      },
+      adapter_handle: 'adapter-1',
+      reflection_lm_handle: 'lm-1',
+    });
+
+    expect(invokes.some((inv) => inv.handle === 'train-loader-1' && inv.method === 'all_ids')).toBe(true);
+    expect(invokes.some((inv) => inv.handle === 'train-loader-1' && inv.method === 'fetch')).toBe(true);
+    expect(invokes.some((inv) => inv.handle === 'val-loader-1' && inv.method === 'all_ids')).toBe(true);
+    expect(invokes.some((inv) => inv.handle === 'val-loader-1' && inv.method === 'fetch')).toBe(true);
+    expect(result['best_candidate']).toEqual({ system_prompt: 'improved prompt' });
+
+    const val_subscores = result['val_subscores'];
+    expect(Array.isArray(val_subscores)).toBe(true);
+    const accepted_scores = (val_subscores as Array<Record<string, number>>)[1];
+    expect(accepted_scores).toEqual({ 0: 1, 1: 1, 2: 1 });
+  }, TEST_TIMEOUT);
+
+  it('uses remote validation policy handles for sparse valset evaluation', async () => {
+    const { invokes, result } = await run_via_server({
+      seed_candidate: { system_prompt: 'seed prompt' },
+      dataset: [{ input: 'train-1' }, { input: 'train-2' }],
+      valset: [{ input: 'val-1' }, { input: 'val-2' }],
+      objective: null,
+      background: null,
+      config: {
+        engine: { max_metric_calls: 8 },
+        reflection: { reflection_minibatch_size: 2 },
+      },
+      adapter_handle: 'adapter-1',
+      adapter_propose_new_texts: true,
+      val_evaluation_policy_handle: 'val-policy-1',
+      reflection_lm_handle: 'lm-1',
+    });
+
+    expect(invokes.some((inv) => inv.handle === 'val-policy-1' && inv.method === 'get_eval_batch')).toBe(true);
+    expect(invokes.some((inv) => inv.handle === 'val-policy-1' && inv.method === 'get_best_program')).toBe(true);
+    expect(invokes.some((inv) => inv.handle === 'val-policy-1' && inv.method === 'get_valset_score')).toBe(true);
+    expect(result['val_subscores']).toEqual([{ 0: 0, 1: 0 }, { 1: 1 }, { 1: 1 }]);
   }, TEST_TIMEOUT);
 });

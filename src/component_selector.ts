@@ -2,6 +2,7 @@ import type { Candidate, GEPAStateLike, ReflectionComponentSelector, Trajectory 
 
 type ComponentStateLike = GEPAStateLike & {
   named_predictor_id_to_update_next_for_program_candidate: number[];
+  list_of_named_predictors?: string[];
 };
 
 type SelectorCallable = ReflectionComponentSelector & {
@@ -21,7 +22,7 @@ function round_robin_impl(
   candidate: Candidate,
 ): string[] {
   const typed_state = state as ComponentStateLike;
-  const predictor_names = Object.keys(candidate);
+  const predictor_names = typed_state.list_of_named_predictors ?? Object.keys(candidate);
   if (predictor_names.length === 0) {
     return [];
   }

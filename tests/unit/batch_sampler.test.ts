@@ -85,4 +85,11 @@ describe("EpochShuffledBatchSampler", () => {
 
     expect(s1.next_minibatch_ids(loader, state)).toEqual(s2.next_minibatch_ids(loader, state));
   });
+
+  test("matches Python random.Random shuffle order for seed 0", () => {
+    const loader = number_loader(Array.from({ length: 20 }, (_, i) => i));
+    const sampler = new EpochShuffledBatchSampler<number, number>(3, new SeededRandom(0));
+
+    expect(sampler.next_minibatch_ids(loader, { total_num_evals: 0, i: 0 })).toEqual([10, 18, 16]);
+  });
 });

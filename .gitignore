@@ -10,3 +10,6 @@ coverage/
 .flt/
 __pycache__/
 *.py[cod]
+
+# flt agent fleet artifacts (per-spawn scratch + handoff docs)
+handoffs/
